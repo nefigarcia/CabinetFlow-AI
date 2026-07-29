@@ -26,6 +26,9 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -40,6 +43,21 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => { void load(); }, []);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiClient.delete(`/projects/${deleteTarget.id}`);
+      setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete project");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <div className="p-8">
@@ -74,9 +92,24 @@ export default function ProjectsPage() {
           {projects.map((p) => (
             <div
               key={p.id}
-              className="bg-surface-50 border border-surface-200 hover:border-surface-300 rounded-xl p-5 transition-colors"
+              className="group relative bg-surface-50 border border-surface-200 hover:border-surface-300 rounded-xl p-5 transition-colors"
             >
-              <div className="flex items-start justify-between mb-3">
+              <button
+                onClick={() => setDeleteTarget(p)}
+                title="Delete project"
+                aria-label={`Delete ${p.name}`}
+                className="absolute top-3 right-3 p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-surface-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                </svg>
+              </button>
+
+              <div className="flex items-start justify-between mb-3 pr-8">
                 <div className="min-w-0">
                   <p className="text-white font-medium truncate">{p.name}</p>
                   <p className="text-gray-500 text-xs mt-0.5 truncate">{p.client?.name ?? "No client"}</p>
@@ -111,6 +144,37 @@ export default function ProjectsPage() {
             setShowNew(false);
           }}
         />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-surface-50 border border-surface-200 rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-white font-semibold text-lg mb-2">Delete project?</h2>
+            <p className="text-gray-400 text-sm">
+              This will permanently delete <span className="text-white font-medium">{deleteTarget.name}</span>{" "}
+              and all of its rooms, cabinets, cutlists, and quotes. This cannot be undone.
+            </p>
+            {deleteError && (
+              <p className="mt-3 text-red-400 text-sm">{deleteError}</p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+                disabled={deleting}
+                className="text-sm text-gray-300 hover:text-white px-3 py-1.5 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="text-sm bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-medium px-3 py-1.5 rounded-md transition-colors"
+              >
+                {deleting ? "Deleting…" : "Delete project"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

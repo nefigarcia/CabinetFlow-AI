@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
 
@@ -24,10 +24,14 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [addingRoom, setAddingRoom] = useState(false);
   const [newRoom, setNewRoom] = useState({ name: "", width: 4800, height: 2400, depth: 5400 });
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient.get<Project>(`/projects/${id}`)
@@ -35,6 +39,18 @@ export default function ProjectDetailPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
+
+  async function deleteProject() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiClient.delete(`/projects/${id}`);
+      router.push("/projects");
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete project");
+      setDeleting(false);
+    }
+  }
 
   async function addRoom(e: React.FormEvent) {
     e.preventDefault();
@@ -150,6 +166,54 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Danger zone */}
+      <div className="mt-10 pt-6 border-t border-surface-200">
+        <h2 className="text-sm font-semibold text-red-400 mb-2">Danger zone</h2>
+        <div className="bg-surface-50 border border-surface-200 rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <p className="text-white text-sm font-medium">Delete this project</p>
+            <p className="text-gray-500 text-xs mt-0.5">
+              Removes all rooms, cabinets, cutlists, and quotes. Cannot be undone.
+            </p>
+          </div>
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="text-sm bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-600/30 px-3 py-1.5 rounded-md transition-colors"
+          >
+            Delete project
+          </button>
+        </div>
+      </div>
+
+      {confirmingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-surface-50 border border-surface-200 rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-white font-semibold text-lg mb-2">Delete project?</h2>
+            <p className="text-gray-400 text-sm">
+              This will permanently delete <span className="text-white font-medium">{project.name}</span>{" "}
+              and all of its rooms, cabinets, cutlists, and quotes. This cannot be undone.
+            </p>
+            {deleteError && <p className="mt-3 text-red-400 text-sm">{deleteError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => { setConfirmingDelete(false); setDeleteError(null); }}
+                disabled={deleting}
+                className="text-sm text-gray-300 hover:text-white px-3 py-1.5 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteProject}
+                disabled={deleting}
+                className="text-sm bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-medium px-3 py-1.5 rounded-md transition-colors"
+              >
+                {deleting ? "Deleting…" : "Delete project"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
