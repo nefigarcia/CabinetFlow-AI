@@ -516,6 +516,214 @@ function repairBaseRowOverlaps(cabinets: CabinetSpecInput[]): CabinetSpecInput[]
   return cabinets.map((c) => repaired.get(c) ?? c);
 }
 
+// ── Shared helper: derive the inner span between the outermost towers ─────────
+// Returns null when the room doesn't have a bookended tower pair (nothing to do).
+function towerInnerSpan(
+  cabinets: CabinetSpecInput[],
+): { innerStartX: number; innerEndX: number; innerWidth: number; leftTower: CabinetSpecInput; rightTower: CabinetSpecInput } | null {
+  const towers = cabinets
+    .filter((c) => c.type === "tall")
+    .sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  if (towers.length < 2) return null;
+  const leftTower  = towers[0]!;
+  const rightTower = towers[towers.length - 1]!;
+  const innerStartX = (leftTower.posX ?? 0) + leftTower.width;
+  const innerEndX   = rightTower.posX ?? Infinity;
+  const innerWidth  = innerEndX - innerStartX;
+  if (innerWidth <= 0) return null;
+  return { innerStartX, innerEndX, innerWidth, leftTower, rightTower };
+}
+
+// ── Fix: middle-row layout repair (open_shelf / opening / led_strip) ────────
+// The AI often computes middle row widths inconsistently:
+//   · Sum > inner width → outer shelves overflow into towers (invisible)
+//   · Sum < inner width → empty gap between last shelf and right tower
+//   · Adjacent units overlap each other internally (right shelf spills into TV)
+// Any of these triggers a repair. Units are grouped by column (same posX means
+// same visual column — e.g. shelf + LED sitting above it share a column).
+// Opening columns (TV recess) keep their width; non-opening columns are scaled
+// to fill the leftover space; then everything chains from innerStartX.
+function repairMiddleRowOverlaps(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const span = towerInnerSpan(cabinets);
+  if (!span) return cabinets;
+  const { innerStartX, innerEndX, innerWidth } = span;
+
+  const middleUnits = cabinets.filter((c) => {
+    if (c.type === "tall") return false;
+    const y = c.posY ?? 0;
+    if (y < 300 || y >= 1400) return false;
+    const role = c.parameters?.role;
+    return role === "open_shelf" || role === "opening" || role === "led_strip";
+  });
+  if (middleUnits.length === 0) return cabinets;
+
+  // Group units into "columns" by shared posX (within 20mm tolerance).
+  // A shelf and the LED strip above it share a column.
+  const TOL = 20;
+  const sorted = [...middleUnits].sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  interface Col { origX: number; width: number; units: CabinetSpecInput[]; isOpening: boolean }
+  const columns: Col[] = [];
+  for (const u of sorted) {
+    const ux = u.posX ?? 0;
+    const uw = u.width;
+    const uIsOpening = u.parameters?.role === "opening";
+    const existing = columns.find((c) => Math.abs(c.origX - ux) < TOL);
+    if (existing) {
+      existing.width = Math.max(existing.width, uw);
+      existing.units.push(u);
+      if (uIsOpening) existing.isOpening = true;
+    } else {
+      columns.push({ origX: ux, width: uw, units: [u], isOpening: uIsOpening });
+    }
+  }
+  columns.sort((a, b) => a.origX - b.origX);
+
+  // Detect any layout issue: overflow, internal overlap between columns,
+  // boundary gap at either end.
+  const overflow =
+    columns[0]!.origX < innerStartX - TOL ||
+    columns[columns.length - 1]!.origX + columns[columns.length - 1]!.width > innerEndX + TOL;
+
+  let internalOverlap = false;
+  for (let i = 0; i < columns.length - 1; i++) {
+    const curEnd    = columns[i]!.origX + columns[i]!.width;
+    const nextStart = columns[i + 1]!.origX;
+    if (curEnd > nextStart + TOL) { internalOverlap = true; break; }
+  }
+
+  const boundaryGap =
+    Math.abs(columns[0]!.origX - innerStartX) > TOL ||
+    Math.abs((columns[columns.length - 1]!.origX + columns[columns.length - 1]!.width) - innerEndX) > TOL;
+
+  if (!overflow && !internalOverlap && !boundaryGap) return cabinets;
+
+  // Redistribute: preserve opening columns' widths, scale non-opening columns
+  // to fill the leftover space.
+  const openingsW    = columns.filter((c) => c.isOpening).reduce((s, c) => s + c.width, 0);
+  const nonOpeningsW = columns.filter((c) => !c.isOpening).reduce((s, c) => s + c.width, 0);
+  const availableForNonOpenings = Math.max(0, innerWidth - openingsW);
+  const scale = nonOpeningsW > 0 ? availableForNonOpenings / nonOpeningsW : 1;
+
+  const repaired = new Map<CabinetSpecInput, CabinetSpecInput>();
+  let cursor = innerStartX;
+  for (const col of columns) {
+    const newW = col.isOpening ? col.width : col.width * scale;
+    for (const u of col.units) {
+      repaired.set(u, { ...u, posX: cursor, width: newW });
+    }
+    cursor += newW;
+  }
+
+  return cabinets.map((c) => repaired.get(c) ?? c);
+}
+
+// ── Fix: upper-row gap repair ────────────────────────────────────────────────
+// The AI sometimes emits upper cabinets whose combined width falls short of the
+// inner span, leaving black gaps between them and the towers. Redistribute the
+// existing upper cabs equally across the full inner span. Never adds or removes
+// units — just fixes widths and positions.
+function repairUpperRowGaps(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const span = towerInnerSpan(cabinets);
+  if (!span) return cabinets;
+  const { innerStartX, innerEndX, innerWidth } = span;
+
+  const upperUnits = cabinets.filter((c) => {
+    if (c.type === "tall") return false;
+    const y = c.posY ?? 0;
+    if (y < 1400) return false;
+    const role = c.parameters?.role ?? "cabinet";
+    return role === "cabinet"; // don't touch LED strips or openings
+  });
+  if (upperUnits.length === 0) return cabinets;
+
+  const sorted = [...upperUnits].sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  const TOL = 30;
+
+  // Check for gaps: total width mismatch OR any internal gap
+  const totalW = sorted.reduce((s, u) => s + u.width, 0);
+  const widthMismatch = Math.abs(totalW - innerWidth) > TOL;
+
+  let internalGap = false;
+  let cursor = innerStartX;
+  for (const u of sorted) {
+    if (Math.abs((u.posX ?? 0) - cursor) > TOL) { internalGap = true; break; }
+    cursor += u.width;
+  }
+  const boundaryGap = Math.abs((sorted[0]!.posX ?? 0) - innerStartX) > TOL ||
+                      Math.abs(((sorted[sorted.length - 1]!.posX ?? 0) + sorted[sorted.length - 1]!.width) - innerEndX) > TOL;
+
+  if (!widthMismatch && !internalGap && !boundaryGap) return cabinets;
+
+  const unitWidth = innerWidth / upperUnits.length;
+  const repaired = new Map<CabinetSpecInput, CabinetSpecInput>();
+  sorted.forEach((u, i) => {
+    repaired.set(u, { ...u, posX: innerStartX + unitWidth * i, width: unitWidth });
+  });
+
+  return cabinets.map((c) => repaired.get(c) ?? c);
+}
+
+// ── Fix: stretch middle row vertically to meet the upper row ─────────────────
+// When the AI makes middle shelves too short (say 610mm tall) but the vertical
+// gap between the base top and upper bottom is much larger (say 1219mm), the
+// 3D shows dead black space above the shelves. Extend each middle-row unit's
+// height to fill the gap, and shift any LED strips that were sitting at the
+// old top edge up to the new top edge so they still crown the shelves.
+function stretchMiddleRowToFillVertical(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const towers = cabinets.filter((c) => c.type === "tall");
+  if (towers.length < 2) return cabinets;
+
+  const middleRow = cabinets.filter((c) => {
+    if (c.type === "tall") return false;
+    const y = c.posY ?? 0;
+    if (y < 300 || y >= 1400) return false;
+    const role = c.parameters?.role;
+    return role === "open_shelf" || role === "opening";
+  });
+  if (middleRow.length === 0) return cabinets;
+
+  const upperRow = cabinets.filter((c) => {
+    if (c.type === "tall") return false;
+    const y = c.posY ?? 0;
+    return y >= 1400 && (c.parameters?.role ?? "cabinet") === "cabinet";
+  });
+  if (upperRow.length === 0) return cabinets;
+
+  const upperBottomY = Math.min(...upperRow.map((c) => c.posY ?? 0));
+  const GAP_THRESHOLD = 200; // ignore gaps smaller than 20cm
+
+  const repaired = new Map<CabinetSpecInput, CabinetSpecInput>();
+  const oldTopByUnit = new Map<CabinetSpecInput, number>();
+
+  for (const u of middleRow) {
+    const y = u.posY ?? 0;
+    const oldTop = y + u.height;
+    oldTopByUnit.set(u, oldTop);
+    const gap = upperBottomY - oldTop;
+    if (gap > GAP_THRESHOLD) {
+      repaired.set(u, { ...u, height: upperBottomY - y });
+    }
+  }
+  if (repaired.size === 0) return cabinets;
+
+  // Move LED strips that were sitting at the old top edge to the new top edge.
+  const ledStrips = cabinets.filter((c) => c.parameters?.role === "led_strip");
+  for (const led of ledStrips) {
+    const ledY = led.posY ?? 0;
+    const matched = middleRow.find((u) => {
+      const oldTop = oldTopByUnit.get(u);
+      return oldTop !== undefined && Math.abs(oldTop - ledY) < 30;
+    });
+    if (matched && repaired.has(matched)) {
+      const stretched = repaired.get(matched)!;
+      const newTopY = (stretched.posY ?? 0) + stretched.height;
+      repaired.set(led, { ...led, posY: newTopY });
+    }
+  }
+
+  return cabinets.map((c) => repaired.get(c) ?? c);
+}
+
 // ── Fix C: middle-row gap filler ──────────────────────────────────────────────
 // When ALL middle-row units are open shelves (a display wall pattern), close
 // any gap larger than 100 mm with an additional open shelf using the same Y,
@@ -602,26 +810,45 @@ function fillMiddleRowGaps(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
   return [...cabinets, ...fillers];
 }
 
+// Full pre-compile layout repair pipeline. Deterministic layout corrections
+// applied to the raw spec so `classifyRow()` and geometry maths see the
+// corrected positions/widths. Idempotent — safe to call more than once.
+//   1. alignUppersToTowers       — snap "upper" cabinets to the tower top edge
+//   2. repairBaseRowOverlaps     — redistribute base row into tower inner span
+//                                  when the AI placed drawers behind a tower
+//   3. repairMiddleRowOverlaps   — fit open-shelf/opening/LED units into inner
+//                                  span so shelves don't disappear behind towers
+//   4. fillMiddleRowGaps         — if all middle units are open shelves, close
+//                                  any gap > 100mm with an auto-inserted shelf
+//   5. repairUpperRowGaps        — redistribute upper cabinets equally across
+//                                  inner span so there's no dead space
+//   6. stretchMiddleRowToFillVertical — extend middle-row shelf heights so
+//                                  their top edge meets the upper row bottom
+//
+// Callers that need the compiled geometry (image prompt, 3D scene, DXF export)
+// go through compileGeometry which calls this internally. Callers that need
+// the repaired INPUT spec (e.g. to persist to the DB with corrected positions)
+// should call repairLayout directly before saving.
+export function repairLayout(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const p1 = alignUppersToTowers(cabinets);
+  const p2 = repairBaseRowOverlaps(p1);
+  const p3 = repairMiddleRowOverlaps(p2);
+  const p4 = fillMiddleRowGaps(p3);
+  const p5 = repairUpperRowGaps(p4);
+  const p6 = stretchMiddleRowToFillVertical(p5);
+  return p6;
+}
+
 export function compileGeometry(
   cabinets: CabinetSpecInput[],
   roomLogic: { suggestedRoomWidth: number; suggestedRoomDepth: number },
   primaryFinish: string,
   roomType: string,
 ): CompiledGeometry {
-  // Pre-compile fixes — deterministic layout corrections applied to the raw
-  // spec BEFORE per-unit compilation so `classifyRow()` and geometry maths
-  // see the corrected positions/widths.
-  //   1. alignUppersToTowers  — snap "upper" cabinets to the tower top edge
-  //   2. repairBaseRowOverlaps — redistribute base row into tower inner span
-  //                              when the AI placed drawers behind a tower
-  //   3. fillMiddleRowGaps    — if all middle units are open shelves, close
-  //                              any gap > 100mm with an auto-inserted shelf
-  const aligned  = alignUppersToTowers(cabinets);
-  const nonOverlap = repairBaseRowOverlaps(aligned);
-  const filled   = fillMiddleRowGaps(nonOverlap);
+  const repaired = repairLayout(cabinets);
 
   // Compile each unit.
-  const units: CompiledUnit[] = filled.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
+  const units: CompiledUnit[] = repaired.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
 
   // Summary — counts of everything the compiler produced
   const summary: CompiledSummary = {

@@ -32,6 +32,9 @@ export default function ProjectDetailPage() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [roomToDelete, setRoomToDelete] = useState<Room | null>(null);
+  const [deletingRoom, setDeletingRoom] = useState(false);
+  const [roomDeleteError, setRoomDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient.get<Project>(`/projects/${id}`)
@@ -49,6 +52,21 @@ export default function ProjectDetailPage() {
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete project");
       setDeleting(false);
+    }
+  }
+
+  async function deleteRoom() {
+    if (!roomToDelete) return;
+    setDeletingRoom(true);
+    setRoomDeleteError(null);
+    try {
+      await apiClient.delete(`/projects/${id}/rooms/${roomToDelete.id}`);
+      setProject((p) => p ? { ...p, rooms: p.rooms.filter((r) => r.id !== roomToDelete.id) } : p);
+      setRoomToDelete(null);
+    } catch (err) {
+      setRoomDeleteError(err instanceof Error ? err.message : "Failed to delete room");
+    } finally {
+      setDeletingRoom(false);
     }
   }
 
@@ -155,12 +173,28 @@ export default function ProjectDetailPage() {
                     {Number(room.width).toFixed(0)} × {Number(room.height).toFixed(0)} × {Number(room.depth).toFixed(0)} mm · {room._count.cabinets} cabinet{room._count.cabinets !== 1 ? "s" : ""}
                   </p>
                 </div>
-                <Link
-                  href={`/projects/${id}/editor`}
-                  className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
-                >
-                  Edit →
-                </Link>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={`/projects/${id}/editor`}
+                    className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
+                  >
+                    Edit →
+                  </Link>
+                  <button
+                    onClick={() => setRoomToDelete(room)}
+                    title="Delete room"
+                    aria-label={`Delete ${room.name}`}
+                    className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-surface-100 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -185,6 +219,37 @@ export default function ProjectDetailPage() {
           </button>
         </div>
       </div>
+
+      {roomToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-surface-50 border border-surface-200 rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-white font-semibold text-lg mb-2">Delete room?</h2>
+            <p className="text-gray-400 text-sm">
+              This will permanently delete <span className="text-white font-medium">{roomToDelete.name}</span>
+              {roomToDelete._count.cabinets > 0 && (
+                <> and its {roomToDelete._count.cabinets} cabinet{roomToDelete._count.cabinets !== 1 ? "s" : ""}</>
+              )}. This cannot be undone.
+            </p>
+            {roomDeleteError && <p className="mt-3 text-red-400 text-sm">{roomDeleteError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => { setRoomToDelete(null); setRoomDeleteError(null); }}
+                disabled={deletingRoom}
+                className="text-sm text-gray-300 hover:text-white px-3 py-1.5 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteRoom}
+                disabled={deletingRoom}
+                className="text-sm bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-medium px-3 py-1.5 rounded-md transition-colors"
+              >
+                {deletingRoom ? "Deleting…" : "Delete room"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

@@ -126,11 +126,20 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
         </mesh>
       )}
 
-      {/* Compiled shelf/frame panels — outer frame + back + horizontal shelves + vertical dividers */}
+      {/* Compiled shelf/frame panels — outer frame + back + horizontal shelves + vertical dividers.
+          For open shelves in dark finishes, use a warm oak tone for the interior so panels
+          stay visible against the dark scene background — matches the design idiom of
+          dark-exterior + wood-interior display cases (as seen in AI concept renders). */}
       {(features?.shelves ?? []).map((s) => {
         const sw = s.widthMm  / 1000;
         const sh = s.heightMm / 1000;
         const sd = s.depthMm  / 1000;
+        // Use warm oak for shelf interior when the primary finish is dark, so the
+        // panels don't disappear into the black background.
+        const isDarkFinish = finishStyle === "modern_gloss" || finishStyle === "dark_walnut" || finishStyle === "metal";
+        const shelfColor    = isOpenShelf && isDarkFinish ? PALETTES.light_oak.door : C.carcass;
+        const shelfEmissive = isOpenShelf && isDarkFinish ? PALETTES.light_oak.door : "#000000";
+        const emissiveIntensity = isOpenShelf && isDarkFinish ? 0.05 : 0;
         return (
           <mesh
             key={s.id}
@@ -143,7 +152,13 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
             receiveShadow
           >
             <boxGeometry args={[sw, sh, sd]} />
-            <meshStandardMaterial color={C.carcass} roughness={0.65} metalness={0.03} />
+            <meshStandardMaterial
+              color={shelfColor}
+              emissive={shelfEmissive}
+              emissiveIntensity={emissiveIntensity}
+              roughness={0.65}
+              metalness={0.03}
+            />
           </mesh>
         );
       })}
@@ -292,7 +307,7 @@ export default function CabinetEditor({ projectId }: Props) {
   const { project, loading: projectLoading } = useProject(projectId);
   const { selectedRoomId, cabinets, selectedCabinetId, selectCabinet } = useEditorStore();
   const { loading: roomLoading }                                        = useRoomCabinets(projectId, selectedRoomId);
-  const { create, save, remove, validate, analyzeDrawing, saving, validating, validationReports } = useCabinets(projectId);
+  const { create, save, remove, validate, saving, validating, validationReports } = useCabinets(projectId);
   const { broadcast: _broadcast }                                       = useCollab(projectId);
 
   const [leftOpen,     setLeftOpen]     = useState(false);
@@ -567,7 +582,6 @@ export default function CabinetEditor({ projectId }: Props) {
         onSave={save}
         onDelete={remove}
         onValidate={validate}
-        onAnalyzeDrawing={analyzeDrawing}
         onPreview={setPreviewId}
         mobileOpen={rightOpen}
         onMobileClose={() => setRightOpen(false)}

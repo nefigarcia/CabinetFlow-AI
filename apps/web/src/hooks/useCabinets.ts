@@ -5,20 +5,6 @@ import { apiClient } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
 import type { Cabinet } from "@woodcraft/shared";
 
-export interface DrawingAnalysis {
-  type: "base" | "wall" | "tall" | "corner" | "island";
-  width: number;
-  height: number;
-  depth: number;
-  parameters: {
-    doorCount: number;
-    drawerCount: number;
-    shelfCount: number;
-  };
-  notes: string;
-  confidence: "high" | "medium" | "low";
-}
-
 export interface ValidationIssue {
   code: string;
   message: string;
@@ -148,23 +134,5 @@ export function useCabinets(projectId: string) {
     [selectedRoomId]
   );
 
-  const analyzeDrawing = useCallback(
-    async (file: File): Promise<DrawingAnalysis | null> => {
-      if (!selectedRoomId) return null;
-      const form = new FormData();
-      form.append("file", file);
-      try {
-        return await apiClient.postFile<DrawingAnalysis>(
-          `/projects/${projectId}/rooms/${selectedRoomId}/cabinets/analyze-drawing`,
-          form
-        );
-      } catch (e: unknown) {
-        console.error("Analyze drawing failed:", e);
-        return null;
-      }
-    },
-    [selectedRoomId, projectId]
-  );
-
-  return { saving, validating, validationReports, create, save, remove, validate, analyzeDrawing };
+  return { saving, validating, validationReports, create, save, remove, validate };
 }

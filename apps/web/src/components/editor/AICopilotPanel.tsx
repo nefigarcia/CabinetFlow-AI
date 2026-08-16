@@ -117,6 +117,8 @@ interface ChatMsg {
   error?: string;
   stepsComplete?: number;
   done?: boolean;
+  /** Tracks the auto-add lifecycle so it survives panel/tab remounts. */
+  addState?: "adding" | "done" | "error";
 }
 
 export interface Props {
@@ -384,19 +386,14 @@ function ElevationPreview({ geometry }: { geometry: CompiledGeometry }) {
 
 function ResultView({
   result,
-  onAdd,
+  addState,
+  onRetry,
 }: {
   result: CopilotResult;
-  onAdd: () => Promise<void>;
+  addState: "adding" | "done" | "error";
+  onRetry: () => void;
 }) {
-  const [state, setState] = useState<"idle" | "adding" | "done">("idle");
   const [expanded, setExpanded] = useState<"units" | "notes" | "standards" | null>("units");
-
-  async function handle() {
-    setState("adding");
-    try { await onAdd(); setState("done"); }
-    catch { setState("idle"); }
-  }
 
   const ROOM_ICON: Record<string, string> = {
     kitchen: "🍳", "living room": "🛋️", bedroom: "🛏️",
@@ -516,24 +513,35 @@ function ResultView({
         </div>
       ))}
 
-      {/* ── Actions: Add to 3D + Download DXF ── */}
-      <div className="flex gap-2">
-        <button
-          onClick={handle}
-          disabled={state !== "idle"}
-          className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-all"
-          style={{
-            background: state === "done" ? "#22c55e22" : state === "adding" ? "#c8852a66" : "#c8852a",
-            color: state === "done" ? "#22c55e" : "#fff",
-            border: state === "done" ? "1px solid #22c55e44" : "1px solid transparent",
-          }}
-        >
-          {state === "done"
-            ? `✓ Added ${result.cabinetList.length} units to 3D`
-            : state === "adding"
-            ? "Adding to 3D…"
-            : `Add ${result.cabinetList.length} units to 3D`}
-        </button>
+      {/* ── Auto-add status + DXF exports ── */}
+      <div className="flex gap-2 items-stretch">
+        {addState === "error" ? (
+          <button
+            onClick={onRetry}
+            className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-all"
+            style={{ background: "#ef444422", color: "#f87171", border: "1px solid #ef444444" }}
+          >
+            ↻ Retry adding {result.cabinetList.length} units
+          </button>
+        ) : (
+          <div
+            className="flex-1 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all"
+            style={{
+              background: addState === "done" ? "#22c55e22" : "#c8852a22",
+              color: addState === "done" ? "#22c55e" : "#c8852a",
+              border: `1px solid ${addState === "done" ? "#22c55e44" : "#c8852a44"}`,
+            }}
+          >
+            {addState === "done" ? (
+              <>✓ Added {result.cabinetList.length} units to 3D</>
+            ) : (
+              <>
+                <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                Adding to 3D…
+              </>
+            )}
+          </div>
+        )}
 
         <button
           onClick={() => {
@@ -825,6 +833,22 @@ export default function AICopilotPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const retryAdd = useCallback(async (assistantId: string, result: CopilotResult) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === assistantId ? { ...m, addState: "adding" } : m))
+    );
+    try {
+      await onAddCabinets(normalizeFinishes(result));
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, addState: "done" } : m))
+      );
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, addState: "error" } : m))
+      );
+    }
+  }, [onAddCabinets]);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
@@ -862,10 +886,22 @@ export default function AICopilotPanel({
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? { ...m, stepsComplete: STEPS.length, result, done: true, text: "" }
+            ? { ...m, stepsComplete: STEPS.length, result, done: true, text: "", addState: "adding" }
             : m
         )
       );
+      // Fire the auto-add once per result and record the outcome on the message,
+      // so tab switches / panel toggles that remount ResultView don't re-trigger it.
+      try {
+        await onAddCabinets(normalizeFinishes(result));
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, addState: "done" } : m))
+        );
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, addState: "error" } : m))
+        );
+      }
     } catch (err: unknown) {
       clearInterval(stepTimer);
       const msg =
@@ -880,7 +916,7 @@ export default function AICopilotPanel({
     } finally {
       setBusy(false);
     }
-  }, [input, busy, projectId]);
+  }, [input, busy, projectId, onAddCabinets]);
 
   function onKey(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1057,7 +1093,8 @@ export default function AICopilotPanel({
                           </div>
                           <ResultView
                             result={msg.result}
-                            onAdd={() => onAddCabinets(normalizeFinishes(msg.result!))}
+                            addState={msg.addState ?? "adding"}
+                            onRetry={() => void retryAdd(msg.id, msg.result!)}
                           />
                         </div>
                       )}

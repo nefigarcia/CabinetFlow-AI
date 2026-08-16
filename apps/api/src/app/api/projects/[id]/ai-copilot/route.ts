@@ -3,7 +3,7 @@ import OpenAI from "openai";
 
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
-import { compileGeometry, type CompiledGeometry } from "@woodcraft/shared";
+import { compileGeometry, repairLayout, type CompiledGeometry, type CabinetSpecInput } from "@woodcraft/shared";
 
 type CabinetType = "base" | "wall" | "tall" | "corner" | "drawer_base" | "sink_base" | "island";
 
@@ -689,6 +689,8 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
     if (process.env.NODE_ENV !== "production") {
       console.log("[AI-COPILOT][RAW_UNITS]", {
         primaryFinish: design.primaryFinish,
+        roomWidth: design.roomLogic?.suggestedRoomWidth,
+        roomDepth: design.roomLogic?.suggestedRoomDepth,
         units: design.cabinetList.map((c) => ({
           name: c.name,
           type: c.type,
@@ -697,6 +699,9 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
           rows: c.parameters?.rows,
           doorCount: c.parameters?.doorCount,
           drawerCount: c.parameters?.drawerCount,
+          posX: c.posX, posY: c.posY, posZ: c.posZ,
+          w: c.width, h: c.height, d: c.depth,
+          wallSide: c.wallSide,
           notes: c.notes,
         })),
       });
@@ -719,32 +724,56 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
           rows: c.parameters?.rows,
           doorCount: c.parameters?.doorCount,
           drawerCount: c.parameters?.drawerCount,
+          posX: c.posX, posY: c.posY, posZ: c.posZ,
+          w: c.width, h: c.height, d: c.depth,
+          wallSide: c.wallSide,
           notes: c.notes,
         })),
       });
     }
 
-    // ── Step 3: Geometry Compiler ─────────────────────────────────────────────
-    // Turn the validated spec into deterministic parametric geometry. Every
+    // ── Step 3a: Layout repair ────────────────────────────────────────────────
+    // Apply deterministic layout corrections (align uppers, redistribute rows,
+    // stretch middle to fill vertical). We do this EXPLICITLY here so the
+    // corrected positions can be reflected back into design.cabinetList, which
+    // is what the frontend persists to the DB when the user clicks "Add to 3D".
+    // Without this the 3D scene would load the AI's original overlapping
+    // positions from the DB even though the compiled preview looked correct.
+    const repairedCabinets = repairLayout(cabinets as CabinetSpecInput[]);
+    design.cabinetList = repairedCabinets as typeof design.cabinetList;
+
+    // ── Step 3b: Geometry Compiler ────────────────────────────────────────────
+    // Turn the repaired spec into deterministic parametric geometry. Every
     // downstream output — image prompt, 3D scene, DXF export, elevation preview —
     // consumes THIS struct. It is the single source of truth.
+    // compileGeometry re-applies repairLayout internally (idempotent) so the
+    // compiled units always match the repaired input.
     const geometry = compileGeometry(
-      cabinets,
+      repairedCabinets,
       design.roomLogic,
       design.primaryFinish,
       design.roomType,
     );
     design.compiledGeometry = geometry;
 
-    // Dev-only debug: what did the compiler produce?
+    // Dev-only debug: what did the compiler produce? Includes FINAL positions after
+    // alignUppersToTowers, repairBaseRowOverlaps, and fillMiddleRowGaps have run.
     if (process.env.NODE_ENV !== "production") {
       console.log("[AI-COPILOT][COMPILED_UNITS]", {
         summary: geometry.summary,
+        overall:  geometry.overall,
+        tvRecess: geometry.tvRecess,
         units: geometry.units.map((u) => ({
           name: u.name,
           type: u.type,
           role: u.role,
           rowClass: u.rowClass,
+          posX: u.posX, posY: u.posY, posZ: u.posZ,
+          w: u.width, h: u.height, d: u.depth,
+          // xRange lets you eyeball overlap at a glance
+          xRange: `${u.posX}-${u.posX + u.width}`,
+          yTop: u.posY + u.height,
+          finish: u.finishStyle,
           fronts:  u.features?.fronts.map((f) => f.kind)  ?? [],
           shelves: u.features?.shelves.map((s) => s.kind) ?? [],
         })),
