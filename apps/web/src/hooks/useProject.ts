@@ -28,7 +28,16 @@ export function useProject(projectId: string) {
       setProject(data);
       storeSetProject(projectId);
       setRooms(data.rooms as Room[]);
-      if (data.rooms[0]) selectRoom(data.rooms[0].id);
+      // Preserve an already-selected room if it still exists in the fresh list.
+      // This is what makes "create room → navigate to editor" work: the project
+      // page pre-selects the new room before pushing the route, and we must not
+      // clobber that selection when the editor's project load fires.
+      const currentSelectedId = useEditorStore.getState().selectedRoomId;
+      const currentSelectionValid =
+        currentSelectedId && data.rooms.some((r) => r.id === currentSelectedId);
+      if (!currentSelectionValid && data.rooms[0]) {
+        selectRoom(data.rooms[0].id);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load project");
     } finally {

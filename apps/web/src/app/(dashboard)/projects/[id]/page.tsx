@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
+import { useEditorStore } from "@/store/editor";
 
 interface Room { id: string; name: string; width: number; height: number; depth: number; _count: { cabinets: number }; createdAt: string }
 interface Project {
@@ -77,6 +78,10 @@ export default function ProjectDetailPage() {
       setProject((p) => p ? { ...p, rooms: [...p.rooms, room] } : p);
       setAddingRoom(false);
       setNewRoom({ name: "", width: 4800, height: 2400, depth: 5400 });
+      // Pre-select the new room in the editor store, then navigate to the editor
+      // so the user lands straight on the room they just created.
+      useEditorStore.getState().selectRoom(room.id);
+      router.push(`/projects/${id}/editor`);
     } catch (err) { console.error(err); }
   }
 
