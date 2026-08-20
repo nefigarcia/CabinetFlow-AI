@@ -181,6 +181,7 @@ export default function ProjectDetailPage() {
                 <div className="flex items-center gap-3">
                   <Link
                     href={`/projects/${id}/editor`}
+                    onClick={() => useEditorStore.getState().selectRoom(room.id)}
                     className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
                   >
                     Edit →
