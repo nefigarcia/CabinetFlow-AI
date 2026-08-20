@@ -506,14 +506,31 @@ export default function CabinetEditor({ projectId }: Props) {
     if (!selectedCabinetId) setRightOpen(false);
   }, [selectedCabinetId]);
 
-  // Auto-open the AI Co-pilot when the current room loads empty.
-  // Fires ONCE per room so the user can close it manually without it reopening.
-  const autoOpenedRoomRef = useRef<string | null>(null);
+  // Set the AI Co-pilot's initial state on room entry:
+  //   · Empty room  → open (help the user get started)
+  //   · Populated room → closed (give the 3D scene the full view)
+  //
+  // Timing subtlety: when selectedRoomId changes, `cabinets` in the store still
+  // holds the PREVIOUS room's data until useRoomCabinets finishes fetching. So
+  // we can't just react to selectedRoomId — we'd read stale cabinet counts.
+  //
+  // Instead: watch `roomLoading` and only act on the true→false transition,
+  // which happens right after setCabinets() so `cabinets` is guaranteed fresh.
+  // Once per room via `lastAppliedRoomRef` — the user can toggle manually
+  // without the effect fighting them.
+  const prevRoomLoadingRef  = useRef(false);
+  const lastAppliedRoomRef  = useRef<string | null>(null);
   useEffect(() => {
-    if (roomLoading || !selectedRoomId) return;
-    if (autoOpenedRoomRef.current === selectedRoomId) return;
-    autoOpenedRoomRef.current = selectedRoomId;
-    if (cabinets.length === 0) setCopilotOpen(true);
+    const wasLoading = prevRoomLoadingRef.current;
+    prevRoomLoadingRef.current = roomLoading;
+
+    // Only fire when a load cycle just completed for the current room.
+    if (!(wasLoading && !roomLoading)) return;
+    if (!selectedRoomId) return;
+    if (lastAppliedRoomRef.current === selectedRoomId) return;
+
+    lastAppliedRoomRef.current = selectedRoomId;
+    setCopilotOpen(cabinets.length === 0);
   }, [selectedRoomId, roomLoading, cabinets.length]);
 
   if (projectLoading) {
