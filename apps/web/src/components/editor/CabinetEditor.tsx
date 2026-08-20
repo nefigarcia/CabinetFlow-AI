@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid, Environment } from "@react-three/drei";
@@ -303,6 +303,119 @@ function CabinetSceneItem({ cabinet }: { cabinet: Cabinet }) {
   return <CabinetMesh cabinet={cabinet} />;
 }
 
+// ── NavigationHint — floating hint showing how to rotate the 3D view ─────────
+// Distinguishes mobile vs desktop by VIEWPORT WIDTH (not by touch capability —
+// many Windows laptops support touch but the user is on a desktop-sized view).
+// Appears once per page load, auto-dismisses after 8 s or on close-button click.
+function NavigationHint() {
+  const [visible, setVisible]  = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [fadingOut, setFading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // "Mobile view" = viewport narrower than Tailwind's md breakpoint (768 px).
+    // Reactive: updates if the user resizes / rotates their device.
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const dismiss = useCallback(() => {
+    setFading(true);
+    window.setTimeout(() => setVisible(false), 350);
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    const t = window.setTimeout(dismiss, 8000);
+    return () => window.clearTimeout(t);
+  }, [visible, dismiss]);
+
+  if (!visible) return null;
+
+  const icon = isMobile ? "✌️" : "🖱️";
+  const gesture = isMobile
+    ? "Use two fingers to rotate the view"
+    : "Right-click + drag to rotate the view";
+  const secondary = isMobile
+    ? "Pinch to zoom · One finger to pan"
+    : "Scroll to zoom · Left-click to select a cabinet";
+
+  return (
+    <div
+      className="absolute left-1/2 -translate-x-1/2 z-30"
+      style={{
+        bottom: 96, // sits well above the bottom edge, clear of any floating buttons
+        opacity: fadingOut ? 0 : 1,
+        transform: `translateX(-50%) translateY(${fadingOut ? "8px" : "0"})`,
+        transition: "opacity 0.35s ease, transform 0.35s ease",
+      }}
+    >
+      <div
+        className="flex items-center gap-3 rounded-full"
+        style={{
+          background: "rgba(14, 17, 20, 0.94)",
+          backdropFilter: "blur(12px)",
+          border: "1px solid rgba(232, 197, 71, 0.32)",
+          padding: "10px 12px 10px 18px",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+          minWidth: 300,
+        }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1 }}>{icon}</span>
+        <div className="flex flex-col flex-1 min-w-0">
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: "#E8C547",
+              letterSpacing: "0.3px",
+              lineHeight: 1.4,
+            }}
+          >
+            {gesture}
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              color: "#9CA3AF",
+              letterSpacing: "0.2px",
+              marginTop: 2,
+              lineHeight: 1.4,
+            }}
+          >
+            {secondary}
+          </span>
+        </div>
+        <button
+          onClick={dismiss}
+          className="flex-shrink-0 rounded-full transition-colors"
+          style={{
+            width: 24,
+            height: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 14,
+            color: "#6A7280",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "#E8C547")}
+          onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "#6A7280")}
+          aria-label="Dismiss hint"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function CabinetEditor({ projectId }: Props) {
   const { project, loading: projectLoading } = useProject(projectId);
   const { selectedRoomId, cabinets, selectedCabinetId, selectCabinet } = useEditorStore();
@@ -560,6 +673,9 @@ export default function CabinetEditor({ projectId }: Props) {
             <p className="text-gray-500 text-sm">Add a cabinet to get started.</p>
           </div>
         )}
+
+        {/* 3D navigation hint — shows how to rotate the view */}
+        {cabinets.length > 0 && <NavigationHint />}
 
         {/* AI Co-pilot panel */}
         <AICopilotPanel
