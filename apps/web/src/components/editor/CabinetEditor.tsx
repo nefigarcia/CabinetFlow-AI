@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid, Environment } from "@react-three/drei";
@@ -506,6 +506,16 @@ export default function CabinetEditor({ projectId }: Props) {
     if (!selectedCabinetId) setRightOpen(false);
   }, [selectedCabinetId]);
 
+  // Auto-open the AI Co-pilot when the current room loads empty.
+  // Fires ONCE per room so the user can close it manually without it reopening.
+  const autoOpenedRoomRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (roomLoading || !selectedRoomId) return;
+    if (autoOpenedRoomRef.current === selectedRoomId) return;
+    autoOpenedRoomRef.current = selectedRoomId;
+    if (cabinets.length === 0) setCopilotOpen(true);
+  }, [selectedRoomId, roomLoading, cabinets.length]);
+
   if (projectLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-surface text-gray-500 text-sm">
@@ -689,19 +699,23 @@ export default function CabinetEditor({ projectId }: Props) {
 
       {/* ── Properties panel ─────────────────────────────────────────────
            Mobile  → fixed bottom sheet, slides up/down
-           Desktop → static right column                                  */}
-      <PropertiesPanel
-        cabinet={selectedCabinet}
-        saving={saving}
-        validating={validating}
-        validationReport={selectedCabinetId ? validationReports[selectedCabinetId] : undefined}
-        onSave={save}
-        onDelete={remove}
-        onValidate={validate}
-        onPreview={setPreviewId}
-        mobileOpen={rightOpen}
-        onMobileClose={() => setRightOpen(false)}
-      />
+           Desktop → static right column
+           Hidden entirely when the room has 0 cabinets — nothing to edit,
+           so the space belongs to the 3D scene / AI Co-pilot instead.       */}
+      {cabinets.length > 0 && (
+        <PropertiesPanel
+          cabinet={selectedCabinet}
+          saving={saving}
+          validating={validating}
+          validationReport={selectedCabinetId ? validationReports[selectedCabinetId] : undefined}
+          onSave={save}
+          onDelete={remove}
+          onValidate={validate}
+          onPreview={setPreviewId}
+          mobileOpen={rightOpen}
+          onMobileClose={() => setRightOpen(false)}
+        />
+      )}
 
       {previewId && (() => {
         const cab = cabinets.find((c) => c.id === previewId);
