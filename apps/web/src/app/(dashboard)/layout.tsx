@@ -36,6 +36,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!mounted || !user) return null;
 
+  // On the 3D editor route, hide the outer chrome (sidebar + top bar) so the
+  // editor's own left panel (Rooms) can take that horizontal space. The editor
+  // has its own header with a "← Project" back link, so navigation continuity
+  // is preserved.
+  const isEditor = pathname.endsWith("/editor");
+
+  if (isEditor) {
+    return (
+      <div className="flex h-screen bg-surface text-white overflow-hidden">
+        <main className="flex-1 overflow-hidden">{children}</main>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-surface text-white overflow-hidden">
 
