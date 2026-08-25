@@ -5,16 +5,20 @@ import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid, Environment } from "@react-three/drei";
 import { useEditorStore } from "@/store/editor";
+import { useMaterialsStore } from "@/store/materials";
 import { useProject, useRoomCabinets } from "@/hooks/useProject";
 import { useCabinets } from "@/hooks/useCabinets";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { CabinetPreviewModal } from "./CabinetPreviewModal";
 import { RoomSelector } from "./RoomSelector";
 import { AddCabinetButton } from "./AddCabinetButton";
+import { RoomShell } from "./RoomShell";
+import { MaterialsPanel } from "./MaterialsPanel";
 import AICopilotPanel, { type AICabinetSpec } from "./AICopilotPanel";
 import { useCollab } from "@/hooks/useCollab";
-import type { Cabinet, CabinetSpecInput } from "@woodcraft/shared";
+import type { Cabinet, CabinetSpecInput, MaterialSlot } from "@woodcraft/shared";
 import { compileUnit } from "@woodcraft/shared";
+import { useSlotMaterial } from "@/lib/render/materials";
 
 interface Props { projectId: string; }
 
@@ -27,24 +31,28 @@ const INSET   = 0.030;  // shaker border width around raised panel
 const PNL_T   = 0.006;  // raised-panel protrusion above door face
 const HDL_T   = 0.008;  // handle bar cross-section
 
-type Palette = { carcass:string; door:string; doorSel:string; panel:string; panelSel:string; toe:string; handle:string; top:string; };
+// Selection highlight applied via emissive tint on top of the resolved
+// material. Keeps the material cache warm across selection changes.
+const SELECTION_EMISSIVE = "#c8852a";
+const SELECTION_EMISSIVE_INTENSITY = 0.35;
 
-const PALETTES: Record<string, Palette> = {
-  light_oak:     { carcass:"#a07848", door:"#c49a62", doorSel:"#c8852a", panel:"#8c6438", panelSel:"#d4922e", toe:"#6a4a28", handle:"#d0d0d0", top:"#eae2d0" },
-  natural_wood:  { carcass:"#5a3e28", door:"#7a5538", doorSel:"#c8852a", panel:"#633222", panelSel:"#d4922e", toe:"#3a2415", handle:"#b8b8b8", top:"#ddd8cc" },
-  dark_walnut:   { carcass:"#3d2e1e", door:"#6b5035", doorSel:"#c8852a", panel:"#523c27", panelSel:"#d4922e", toe:"#2a2018", handle:"#b4b4b4", top:"#ddd8cc" },
-  white_painted: { carcass:"#d8d8d8", door:"#f0f0f0", doorSel:"#c8852a", panel:"#c8c8c8", panelSel:"#d4922e", toe:"#b8b8b8", handle:"#888888", top:"#fafaf5" },
-  modern_gloss:  { carcass:"#1a1a1c", door:"#26262a", doorSel:"#c8852a", panel:"#1e1e22", panelSel:"#d4922e", toe:"#111113", handle:"#c8c8ce", top:"#2a2a2e" },
-  glass:         { carcass:"#6b5035", door:"#88ccee", doorSel:"#22d3ee", panel:"#0a4060", panelSel:"#38bdf8", toe:"#3d2e1e", handle:"#a07848", top:"#6b5035" },
-  metal:         { carcass:"#252525", door:"#383838", doorSel:"#c8852a", panel:"#1e1e1e", panelSel:"#d4922e", toe:"#151515", handle:"#909090", top:"#444444" },
+// Legacy `finishStyle` → material-id seed. When a cabinet was created in
+// the old PALETTES-based UI and the material selection is empty, this
+// map provides a reasonable starting point per slot so the cabinet does
+// not render as the platform default. Users can override via the
+// MaterialsPanel UI.
+type LegacyFinishSeed = Partial<Record<MaterialSlot, string>>;
+const LEGACY_FINISH_SEEDS: Record<string, LegacyFinishSeed> = {
+  light_oak:     { cabinetExterior: "wood-white-oak", door: "wood-white-oak", hardware: "metal-stainless" },
+  natural_wood:  { cabinetExterior: "wood-walnut", door: "wood-walnut" },
+  dark_walnut:   { cabinetExterior: "wood-dark-walnut", door: "wood-dark-walnut" },
+  white_painted: { cabinetExterior: "painted-white", door: "painted-white" },
+  modern_gloss:  { cabinetExterior: "painted-black", door: "laminate-gloss-black", hardware: "metal-stainless" },
+  metal:         { cabinetExterior: "painted-black", door: "metal-matte-black", hardware: "metal-stainless" },
 };
 
-const DEFAULT_PALETTE = PALETTES.dark_walnut;
-
-function getPalette(finishStyle?: string, name?: string, notes?: string): Palette {
-  const hint = `${name ?? ""} ${notes ?? ""}`.toLowerCase();
-  if (hint.includes("fish tank") || hint.includes("aquarium")) return PALETTES.glass;
-  return PALETTES[finishStyle ?? ""] ?? DEFAULT_PALETTE;
+function legacyFinishSeed(finishStyle?: string): LegacyFinishSeed | undefined {
+  return finishStyle ? LEGACY_FINISH_SEEDS[finishStyle] : undefined;
 }
 
 // Convert a DB Cabinet row into the CabinetSpecInput shape the compiler expects.
@@ -65,14 +73,15 @@ function cabinetToSpecInput(cabinet: Cabinet): CabinetSpecInput {
 function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const selectCabinet = useEditorStore((s) => s.selectCabinet);
   const isSelected    = useEditorStore((s) => s.selectedCabinetId) === cabinet.id;
+  const selection     = useMaterialsStore((s) => s.selection);
 
   const prm         = (cabinet.parameters ?? {}) as Record<string, unknown>;
   const finishStyle = String(prm.finishStyle ?? "");
 
-  // Compile this cabinet via the shared geometry compiler — the same function
+  // Compile this cabinet via the shared geometry compiler — same function
   // the DXF exporter and image-prompt builder use. All derived visuals
   // (drawer counts, door widths, handle positions, toe kick, countertop)
-  // come from one canonical source. No inline math here.
+  // come from one canonical source.
   const unit = useMemo(
     () => compileUnit(cabinetToSpecInput(cabinet), finishStyle || "natural_wood"),
     [cabinet, finishStyle],
@@ -90,13 +99,6 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
                   `${cabinet.name} ${String(prm.notes ?? "")}`.toLowerCase().includes("fish tank") ||
                   `${cabinet.name}`.toLowerCase().includes("aquarium");
 
-  const C = getPalette(finishStyle, cabinet.name, String(prm.notes ?? ""));
-  const isGloss = finishStyle === "modern_gloss";
-  const doorRoughness = isGloss ? 0.15 : 0.6;
-  const doorMetalness = isGloss ? 0.35 : 0.03;
-  const doorCol  = isSelected ? C.doorSel  : C.door;
-  const pnlCol   = isSelected ? C.panelSel : C.panel;
-
   const features = unit.features;
   const toeH     = (features?.toeKickHeightMm ?? 0) / 1000;
   const carcassH = h - toeH;
@@ -112,6 +114,56 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
 
   const isOpenShelf = unit.role === "open_shelf";
 
+  // Build a selection object seeded with the legacy `finishStyle` when the
+  // user has not yet chosen anything for this cabinet. This preserves the
+  // visual identity of pre-materials cabinets on first load without
+  // touching the DB.
+  const effectiveSelection = useMemo(() => {
+    const seed = legacyFinishSeed(finishStyle);
+    if (!seed) return selection;
+    const existing = selection.cabinets[cabinet.id];
+    // Only apply the seed when no explicit selection exists at all.
+    if (existing && Object.keys(existing).length > 0) return selection;
+    return {
+      ...selection,
+      cabinets: {
+        ...selection.cabinets,
+        [cabinet.id]: seed,
+      },
+    };
+  }, [selection, cabinet.id, finishStyle]);
+
+  const emissiveArgs = isSelected
+    ? { emissiveHex: SELECTION_EMISSIVE, emissiveIntensity: SELECTION_EMISSIVE_INTENSITY }
+    : {};
+
+  const carcassMat = useSlotMaterial(effectiveSelection, cabinet.id, "cabinetExterior", {
+    face: { widthMm: Number(cabinet.width), heightMm: Number(cabinet.height) },
+    ...emissiveArgs,
+  });
+  const shelfMat = useSlotMaterial(effectiveSelection, cabinet.id, isOpenShelf ? "cabinetInterior" : "shelf", {
+    face: { widthMm: Number(cabinet.width), heightMm: Number(cabinet.depth) },
+  });
+  const toeKickMat = useSlotMaterial(effectiveSelection, cabinet.id, "toeKick", {
+    face: { widthMm: Number(cabinet.width), heightMm: (features?.toeKickHeightMm ?? 100) },
+    ...emissiveArgs,
+  });
+  const doorMat = useSlotMaterial(effectiveSelection, cabinet.id, "door", {
+    face: { widthMm: Number(cabinet.width), heightMm: Number(cabinet.height) },
+    opacityOverride: isGlass ? 0.28 : undefined,
+    ...emissiveArgs,
+  });
+  const drawerFrontMat = useSlotMaterial(effectiveSelection, cabinet.id, "drawerFront", {
+    face: { widthMm: Number(cabinet.width), heightMm: 200 },
+    ...emissiveArgs,
+  });
+  const hardwareMat = useSlotMaterial(effectiveSelection, cabinet.id, "hardware", {
+    face: { widthMm: 100, heightMm: 20 },
+  });
+  const countertopMat = useSlotMaterial(effectiveSelection, cabinet.id, "countertop", {
+    face: { widthMm: Number(cabinet.width) + (ct?.overhangSidesMm ?? 0) * 2, heightMm: Number(cabinet.depth) + (ct?.overhangFrontMm ?? 0) },
+  });
+
   return (
     <group
       position={[gx, gy, gz]}
@@ -120,26 +172,16 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
       {/* Solid carcass — skip for open shelves (they render as an open frame
           via the compiled shelves list below). */}
       {!isOpenShelf && (
-        <mesh position={[w / 2, toeH + carcassH / 2, carcassD / 2]} castShadow receiveShadow>
+        <mesh position={[w / 2, toeH + carcassH / 2, carcassD / 2]} castShadow receiveShadow material={carcassMat}>
           <boxGeometry args={[w, carcassH, carcassD]} />
-          <meshStandardMaterial color={C.carcass} roughness={0.8} metalness={0.02} />
         </mesh>
       )}
 
-      {/* Compiled shelf/frame panels — outer frame + back + horizontal shelves + vertical dividers.
-          For open shelves in dark finishes, use a warm oak tone for the interior so panels
-          stay visible against the dark scene background — matches the design idiom of
-          dark-exterior + wood-interior display cases (as seen in AI concept renders). */}
+      {/* Compiled shelf/frame panels — outer frame + back + horizontal shelves + vertical dividers. */}
       {(features?.shelves ?? []).map((s) => {
         const sw = s.widthMm  / 1000;
         const sh = s.heightMm / 1000;
         const sd = s.depthMm  / 1000;
-        // Use warm oak for shelf interior when the primary finish is dark, so the
-        // panels don't disappear into the black background.
-        const isDarkFinish = finishStyle === "modern_gloss" || finishStyle === "dark_walnut" || finishStyle === "metal";
-        const shelfColor    = isOpenShelf && isDarkFinish ? PALETTES.light_oak.door : C.carcass;
-        const shelfEmissive = isOpenShelf && isDarkFinish ? PALETTES.light_oak.door : "#000000";
-        const emissiveIntensity = isOpenShelf && isDarkFinish ? 0.05 : 0;
         return (
           <mesh
             key={s.id}
@@ -150,24 +192,17 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
             ]}
             castShadow
             receiveShadow
+            material={shelfMat}
           >
             <boxGeometry args={[sw, sh, sd]} />
-            <meshStandardMaterial
-              color={shelfColor}
-              emissive={shelfEmissive}
-              emissiveIntensity={emissiveIntensity}
-              roughness={0.65}
-              metalness={0.03}
-            />
           </mesh>
         );
       })}
 
       {/* Toe-kick board — bottom-front strip */}
       {toeH > 0 && (
-        <mesh position={[w / 2, toeH / 2, d - DOOR_T / 2]}>
+        <mesh position={[w / 2, toeH / 2, d - DOOR_T / 2]} material={toeKickMat}>
           <boxGeometry args={[w, toeH, DOOR_T]} />
-          <meshStandardMaterial color={C.toe} roughness={0.9} metalness={0} />
         </mesh>
       )}
 
@@ -183,16 +218,13 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
         const iw = pw - 2 * INSET;
         const ih = ph - 2 * INSET;
         const showShaker = f.hasShakerInset && iw > 0.04 && ih > 0.04;
+        const frontMat = f.kind === "drawer" ? drawerFrontMat : doorMat;
 
         return (
           <group key={i}>
-            {/* Front slab — transparent for glass/aquarium units */}
-            <mesh position={[px, py, pzC]} castShadow receiveShadow>
+            {/* Front slab — reuses the resolved door/drawer material */}
+            <mesh position={[px, py, pzC]} castShadow receiveShadow material={frontMat}>
               <boxGeometry args={[pw, ph, pt]} />
-              {isGlass
-                ? <meshStandardMaterial color={doorCol} transparent opacity={0.28} roughness={0.05} metalness={0.15} />
-                : <meshStandardMaterial color={doorCol} roughness={doorRoughness} metalness={doorMetalness} />
-              }
             </mesh>
 
             {/* Aquarium water volume — only for glass units */}
@@ -205,19 +237,17 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
 
             {/* Shaker raised centre panel — skip for glass */}
             {showShaker && !isGlass && (
-              <mesh position={[px, py, d + PNL_T / 2]}>
+              <mesh position={[px, py, d + PNL_T / 2]} material={frontMat}>
                 <boxGeometry args={[iw, ih, PNL_T]} />
-                <meshStandardMaterial color={pnlCol} roughness={0.65} metalness={0.02} />
               </mesh>
             )}
 
             {/* Handle bar — skip for glass/aquarium */}
             {!isGlass && f.handle && (
-              <mesh position={[f.handle.x / 1000, f.handle.y / 1000, d + HDL_T / 2]}>
+              <mesh position={[f.handle.x / 1000, f.handle.y / 1000, d + HDL_T / 2]} material={hardwareMat}>
                 <boxGeometry args={f.handle.orientation === "horizontal"
                   ? [f.handle.lengthMm / 1000, HDL_T, HDL_T]
                   : [HDL_T, f.handle.lengthMm / 1000, HDL_T]} />
-                <meshStandardMaterial color={C.handle} roughness={0.25} metalness={0.85} />
               </mesh>
             )}
           </group>
@@ -226,9 +256,8 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
 
       {/* Countertop slab — only when the compiler says so */}
       {ct && (
-        <mesh position={[w / 2, h + topH / 2, topZC]} castShadow receiveShadow>
+        <mesh position={[w / 2, h + topH / 2, topZC]} castShadow receiveShadow material={countertopMat}>
           <boxGeometry args={[topW, topH, topD]} />
-          <meshStandardMaterial color={C.top} roughness={0.35} metalness={0.05} />
         </mesh>
       )}
     </group>
@@ -426,7 +455,21 @@ export default function CabinetEditor({ projectId }: Props) {
   const [leftOpen,     setLeftOpen]     = useState(false);
   const [rightOpen,    setRightOpen]    = useState(false);
   const [copilotOpen,  setCopilotOpen]  = useState(false);
+  const [materialsOpen, setMaterialsOpen] = useState(false);
   const [previewId,    setPreviewId]    = useState<string | null>(null);
+
+  // Bootstrap the per-project material selection from localStorage on
+  // project change. The store falls back to an empty selection when no
+  // saved state exists — resolver defaults handle first-time rendering.
+  const loadMaterialsForProject = useMaterialsStore((s) => s.loadForProject);
+  useEffect(() => {
+    if (projectId) loadMaterialsForProject(projectId);
+  }, [projectId, loadMaterialsForProject]);
+
+  const selectedRoom = useMemo(
+    () => project?.rooms?.find((r) => r.id === selectedRoomId),
+    [project?.rooms, selectedRoomId],
+  );
 
   async function handleAddCabinets(specs: AICabinetSpec[]) {
     // When the AI returns floor-plan positions (sketch-to-CAD path), use them directly.
@@ -655,6 +698,21 @@ export default function CabinetEditor({ projectId }: Props) {
           <span>AI Co-pilot</span>
         </button>
 
+        {/* Materials toggle — sits just below the AI Co-pilot button */}
+        <button
+          className="absolute top-14 right-3 z-10 flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-2 transition-all"
+          style={{
+            background: materialsOpen ? "#3d7fff" : "#1A1E26",
+            border: materialsOpen ? "1px solid #3d7fff" : "1px solid #2E3240",
+            color: materialsOpen ? "#fff" : "#8ab4ff",
+          }}
+          onClick={() => setMaterialsOpen((v) => !v)}
+          aria-label="Toggle materials panel"
+        >
+          <span>◐</span>
+          <span>Materials</span>
+        </button>
+
         {/* Properties toggle — bottom-centre, only when cabinet is selected */}
         {selectedCabinet && (
           <button
@@ -688,6 +746,9 @@ export default function CabinetEditor({ projectId }: Props) {
             sectionSize={1.2} sectionThickness={1} sectionColor="#3a3a3a"
             fadeDistance={30} fadeStrength={1} followCamera={false} infiniteGrid
           />
+          {selectedRoom && (
+            <RoomShell room={selectedRoom} cabinets={cabinets} />
+          )}
           {cabinets.map((cab) => (
             <CabinetSceneItem key={cab.id} cabinet={cab} />
           ))}
@@ -711,6 +772,13 @@ export default function CabinetEditor({ projectId }: Props) {
           isOpen={copilotOpen}
           onClose={() => setCopilotOpen(false)}
           onAddCabinets={handleAddCabinets}
+        />
+
+        {/* Materials panel — room + selected cabinet material pickers */}
+        <MaterialsPanel
+          isOpen={materialsOpen}
+          onClose={() => setMaterialsOpen(false)}
+          selectedCabinet={selectedCabinet}
         />
       </div>
 
