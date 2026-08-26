@@ -16,15 +16,11 @@ import {
   SLOT_ALLOWED_CATEGORIES,
 } from "@woodcraft/shared";
 
-// Simple slide-out material picker for the editor MVP. Splits into two
-// sections: Room (floor/wall/backsplash/countertop) and Cabinet (the
-// currently-selected cabinet's per-slot overrides). Every picker writes
-// through the useMaterialsStore setters — no local state, no direct
-// THREE.js references.
+// Material inspector — ported from the standalone MaterialsPanel used
+// during the V2.6 MVP. Same data flow, same store; positioned as an
+// Inspector tab instead of a floating overlay.
 
 interface Props {
-  isOpen: boolean;
-  onClose: () => void;
   selectedCabinet: Cabinet | undefined;
 }
 
@@ -35,9 +31,6 @@ const ROOM_SLOTS: readonly (keyof RoomMaterialSelection)[] = [
   "countertop",
 ];
 
-// Ordered subset of cabinet slots exposed in the MVP UI. Everything else
-// (finished ends, face frame, cabinet interior, etc.) falls back through
-// the resolver until we ship UI for them.
 const CABINET_SLOTS: readonly (keyof CabinetMaterialSelection)[] = [
   "cabinetExterior",
   "door",
@@ -45,7 +38,6 @@ const CABINET_SLOTS: readonly (keyof CabinetMaterialSelection)[] = [
   "hardware",
 ];
 
-// Small helper: which materials are allowed for a slot.
 function optionsForSlot(slot: MaterialSlot): MaterialRenderProfile[] {
   const allowed = SLOT_ALLOWED_CATEGORIES[slot];
   const allowedSet = new Set<MaterialCategory>(allowed);
@@ -107,45 +99,18 @@ function MaterialPicker({
   );
 }
 
-export function MaterialsPanel({ isOpen, onClose, selectedCabinet }: Props) {
+export function MaterialInspector({ selectedCabinet }: Props) {
   const selection = useMaterialsStore((s) => s.selection);
   const setRoomMaterial = useMaterialsStore((s) => s.setRoomMaterial);
   const setCabinetMaterial = useMaterialsStore((s) => s.setCabinetMaterial);
   const resetAll = useMaterialsStore((s) => s.resetAll);
 
-  if (!isOpen) return null;
-
   const cab = selectedCabinet;
   const cabSel = cab ? selection.cabinets[cab.id] ?? {} : ({} as CabinetMaterialSelection);
 
   return (
-    <aside
-      className="absolute top-0 right-0 h-full z-20 flex flex-col shadow-2xl"
-      style={{
-        width: 320,
-        background: "#0f1114",
-        borderLeft: "1px solid #1E2226",
-      }}
-    >
-      <div
-        className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: "1px solid #1E2226" }}
-      >
-        <div>
-          <h3 className="text-white text-sm font-semibold">Materials</h3>
-          <p className="text-gray-500 text-xs mt-0.5">Room finishes + cabinet slots</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-gray-500 hover:text-white transition-colors text-lg leading-none px-1"
-          aria-label="Close materials panel"
-        >
-          ✕
-        </button>
-      </div>
-
+    <div className="h-full flex flex-col">
       <div className="flex-1 overflow-auto p-4 space-y-6">
-        {/* Room section */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">Room</p>
           <div className="space-y-3">
@@ -161,7 +126,6 @@ export function MaterialsPanel({ isOpen, onClose, selectedCabinet }: Props) {
           </div>
         </section>
 
-        {/* Cabinet section — active cabinet's slot overrides */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">
             {cab ? "Selected cabinet" : "Cabinet"}
@@ -190,12 +154,10 @@ export function MaterialsPanel({ isOpen, onClose, selectedCabinet }: Props) {
       </div>
 
       <div
-        className="px-4 py-3 flex items-center justify-between"
+        className="px-4 py-2.5 flex items-center justify-between flex-shrink-0"
         style={{ borderTop: "1px solid #1E2226" }}
       >
-        <span className="text-[11px] text-gray-500">
-          Saved to this browser · per project
-        </span>
+        <span className="text-[10px] text-gray-500">Saved locally · per project</span>
         <button
           onClick={() => {
             if (
@@ -205,11 +167,11 @@ export function MaterialsPanel({ isOpen, onClose, selectedCabinet }: Props) {
               resetAll();
             }
           }}
-          className="text-[11px] text-red-400 hover:text-red-300 transition-colors"
+          className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
         >
           Reset all
         </button>
       </div>
-    </aside>
+    </div>
   );
 }
