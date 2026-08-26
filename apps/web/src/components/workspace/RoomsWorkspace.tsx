@@ -289,13 +289,13 @@ export function RoomsWorkspace({ projectId }: Props) {
           <div
             className={[
               "flex-shrink-0",
-              // Mobile: bottom sheet slides up
-              "fixed inset-x-0 bottom-0 z-20 max-h-[75vh]",
+              // Mobile: bottom sheet slides up (fixed height so inner scroll works)
+              "fixed inset-x-0 bottom-0 z-20 h-[75vh]",
               "rounded-t-2xl overflow-hidden",
               "transition-transform duration-300 ease-in-out",
               rightOpen ? "translate-y-0" : "translate-y-full",
               // Desktop: static right column
-              "md:static md:max-h-none md:rounded-none md:translate-y-0 md:z-auto md:transition-none",
+              "md:static md:h-auto md:rounded-none md:translate-y-0 md:z-auto md:transition-none",
             ].join(" ")}
           >
             <InspectorPanel

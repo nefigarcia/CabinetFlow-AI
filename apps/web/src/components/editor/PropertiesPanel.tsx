@@ -16,8 +16,6 @@ interface Props {
   onDelete: (id: string) => Promise<void>;
   onValidate: (id: string) => Promise<void>;
   onPreview: (id: string) => void;
-  mobileOpen?: boolean;
-  onMobileClose?: () => void;
 }
 
 function DimInput({
@@ -71,7 +69,7 @@ function ParamInput({
   );
 }
 
-export function PropertiesPanel({ cabinet, saving, validating, validationReport, onSave, onDelete, onValidate, onPreview, mobileOpen, onMobileClose }: Props) {
+export function PropertiesPanel({ cabinet, saving, validating, validationReport, onSave, onDelete, onValidate, onPreview }: Props) {
   const updateCabinet = useEditorStore((s) => s.updateCabinet);
   const selectCabinet = useEditorStore((s) => s.selectCabinet);
   const projectId = useEditorStore((s) => s.projectId);
@@ -109,28 +107,12 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
     800
   );
 
-  // Shared aside class: mobile = fixed bottom sheet, desktop = static right column
-  const asideClass = [
-    "flex flex-col flex-shrink-0",
-    // mobile: fixed bottom sheet
-    "fixed inset-x-0 bottom-0 z-20 max-h-[75vh]",
-    "rounded-t-2xl",
-    "transition-transform duration-300 ease-in-out",
-    mobileOpen ? "translate-y-0" : "translate-y-full",
-    // desktop: static right column, always visible
-    "md:static md:w-64 md:max-h-none md:rounded-none md:translate-y-0 md:z-auto md:transition-none",
-  ].join(" ");
+  // Fills its parent container — positioning/chrome is owned by InspectorPanel.
+  const asideClass = "flex flex-col h-full w-full";
 
   if (!cabinet) {
     return (
-      <aside
-        className={asideClass}
-        style={{ background: "#111214", borderLeft: "1px solid #1E2226" }}
-      >
-        {/* Mobile drag handle */}
-        <div className="md:hidden flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-gray-700" />
-        </div>
+      <aside className={asideClass} style={{ background: "#111214" }}>
         <div className="flex-1 flex items-center justify-center px-4">
           <p className="text-gray-600 text-xs text-center">
             Select a cabinet to edit its properties.
@@ -268,15 +250,7 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
 
   return (
     <>
-    <aside
-      className={asideClass}
-      style={{ background: "#111214", borderLeft: "1px solid #1E2226" }}
-    >
-      {/* Mobile drag handle */}
-      <div className="md:hidden flex justify-center pt-3 pb-0">
-        <div className="w-10 h-1 rounded-full bg-gray-700" />
-      </div>
-
+    <aside className={asideClass} style={{ background: "#111214" }}>
       {/* Header */}
       <div className="p-4 border-b border-surface-200 flex items-center justify-between">
         <div className="min-w-0">
@@ -285,16 +259,6 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         </div>
         <div className="flex items-center gap-2 ml-2 flex-shrink-0">
           {saving && <span className="text-gray-500 text-xs">saving…</span>}
-          {/* Close button — mobile only */}
-          {onMobileClose && (
-            <button
-              className="md:hidden text-gray-500 hover:text-white transition-colors p-1"
-              onClick={onMobileClose}
-              aria-label="Close properties"
-            >
-              ✕
-            </button>
-          )}
         </div>
       </div>
 

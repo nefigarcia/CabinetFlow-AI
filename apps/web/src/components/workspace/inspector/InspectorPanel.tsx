@@ -61,9 +61,8 @@ export function InspectorPanel({
 
   return (
     <aside
-      className="flex flex-col h-full flex-shrink-0"
+      className="flex flex-col h-full flex-shrink-0 w-full md:w-72"
       style={{
-        width: 288,
         background: "#0f1114",
         borderLeft: "1px solid #1E2226",
       }}
