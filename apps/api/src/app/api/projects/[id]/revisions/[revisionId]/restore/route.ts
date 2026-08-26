@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
+import {
+  snapshotPartToPrismaData,
+  type LegacySnapshotPart,
+} from "@woodcraft/shared";
 
 type Params = { params: { id: string; revisionId: string } };
 
@@ -27,20 +31,7 @@ interface SnapshotCabinet {
   posZ: number;
   parameters: unknown;
   materialId: string | null;
-  parts: SnapshotPart[];
-}
-
-interface SnapshotPart {
-  name: string;
-  partType: string;
-  width: number;
-  height: number;
-  thickness: number;
-  quantity: number;
-  materialId: string | null;
-  grainDir: string | null;
-  edgeBanding: unknown;
-  cutParams: unknown;
+  parts: LegacySnapshotPart[];
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
@@ -103,19 +94,12 @@ export async function POST(req: NextRequest, { params }: Params) {
             parameters: cab.parameters as any,
             materialId: cab.materialId ?? undefined,
             parts: {
-              create: cab.parts.map((p) => ({
-                orgId,
-                name: p.name,
-                partType: p.partType,
-                width: p.width,
-                height: p.height,
-                thickness: p.thickness,
-                quantity: p.quantity,
-                materialId: p.materialId ?? undefined,
-                grainDir: p.grainDir ?? undefined,
-                edgeBanding: p.edgeBanding as any ?? undefined,
-                cutParams: p.cutParams as any ?? undefined,
-              })),
+              // Preserve `isManual` from the snapshot so manual/custom parts
+              // survive a restore. Historical snapshots that predate V2.1A.1
+              // may not carry `isManual`; the mapper defaults it to false.
+              // Cast at the Prisma boundary: the mapper is intentionally
+              // Prisma-agnostic and types edgeBanding/cutParams as unknown.
+              create: cab.parts.map((p) => snapshotPartToPrismaData(p, orgId)) as any,
             },
           })),
         },

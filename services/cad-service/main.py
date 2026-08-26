@@ -40,3 +40,12 @@ def health():
 
 app.include_router(cabinet.router, prefix="/cabinets", tags=["cabinets"])
 app.include_router(nesting.router, prefix="/nesting", tags=["nesting"])
+
+# V2.1A diagnostic-only geometry parity endpoint. Registered ONLY when the
+# ENABLE_PARITY_ENDPOINT env flag is truthy. Even when registered, it sits
+# behind the same x-internal-api-key middleware as every other route.
+# This is defense-in-depth: the flag prevents the endpoint from appearing in
+# /openapi.json in production deployments.
+if settings.enable_parity_endpoint:
+    from app.routers import parity  # noqa: E402
+    app.include_router(parity.router, prefix="/parity", tags=["parity"])
