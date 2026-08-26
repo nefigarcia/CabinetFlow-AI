@@ -285,31 +285,33 @@ export function RoomsWorkspace({ projectId }: Props) {
         </div>
 
         {/* Right — Inspector */}
-        <div
-          className={[
-            "flex-shrink-0",
-            // Mobile: bottom sheet slides up
-            "fixed inset-x-0 bottom-0 z-20 max-h-[75vh]",
-            "rounded-t-2xl overflow-hidden",
-            "transition-transform duration-300 ease-in-out",
-            rightOpen ? "translate-y-0" : "translate-y-full",
-            // Desktop: static right column
-            "md:static md:max-h-none md:rounded-none md:translate-y-0 md:z-auto md:transition-none",
-          ].join(" ")}
-        >
-          <InspectorPanel
-            saving={saving}
-            validating={validating}
-            validationReports={validationReports}
-            onSave={save}
-            onDelete={async (id) => {
-              await remove(id);
-              selectCabinet(null);
-            }}
-            onValidate={validate}
-            onPreview={setPreviewId}
-          />
-        </div>
+        {cabinets.length > 0 && (
+          <div
+            className={[
+              "flex-shrink-0",
+              // Mobile: bottom sheet slides up
+              "fixed inset-x-0 bottom-0 z-20 max-h-[75vh]",
+              "rounded-t-2xl overflow-hidden",
+              "transition-transform duration-300 ease-in-out",
+              rightOpen ? "translate-y-0" : "translate-y-full",
+              // Desktop: static right column
+              "md:static md:max-h-none md:rounded-none md:translate-y-0 md:z-auto md:transition-none",
+            ].join(" ")}
+          >
+            <InspectorPanel
+              saving={saving}
+              validating={validating}
+              validationReports={validationReports}
+              onSave={save}
+              onDelete={async (id) => {
+                await remove(id);
+                selectCabinet(null);
+              }}
+              onValidate={validate}
+              onPreview={setPreviewId}
+            />
+          </div>
+        )}
       </div>
 
       <WorkspaceSummary room={selectedRoom} />
