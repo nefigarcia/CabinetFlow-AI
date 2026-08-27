@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useWorkspaceUiStore, type InspectorTab } from "../state/use-workspace-ui";
-import { useSelectedCabinet, useSelectedRoom, useSelection } from "../state/selection-adapter";
+import {
+  useSelectedCabinet,
+  useSelectedRoom,
+  useSelectedSceneAssetInstance,
+  useSelection,
+} from "../state/selection-adapter";
 import { CabinetInspector, CabinetInspectorEmpty } from "./CabinetInspector";
 import { MaterialInspector } from "./MaterialInspector";
 import { RoomInspector } from "./RoomInspector";
+import { SceneAssetInspector, SceneAssetInspectorEmpty } from "./SceneAssetInspector";
+import { ArchitectureInspector, ArchitectureInspectorEmpty } from "./ArchitectureInspector";
+import { SCENE_ASSETS_ENABLED } from "@/lib/features";
+import { useSceneAssetsStore } from "@/store/sceneAssets";
 import type { ValidationReport } from "@/hooks/useCabinets";
 
 // Right-side Inspector shell. Tabs the user can click through:
@@ -18,6 +27,7 @@ import type { ValidationReport } from "@/hooks/useCabinets";
 // click other tabs freely.
 
 interface Props {
+  projectId: string;
   saving: boolean;
   validating: boolean;
   validationReports: Record<string, ValidationReport | undefined>;
@@ -27,13 +37,23 @@ interface Props {
   onPreview: (id: string) => void;
 }
 
-const TABS: readonly { id: InspectorTab; label: string; icon: string }[] = [
+interface TabDescriptor {
+  id: InspectorTab;
+  label: string;
+  icon: string;
+}
+
+const BASE_TABS: readonly TabDescriptor[] = [
   { id: "cabinet", label: "Cabinet", icon: "▤" },
   { id: "material", label: "Material", icon: "◐" },
   { id: "room", label: "Room", icon: "◱" },
 ];
 
+const SCENE_ASSET_TAB: TabDescriptor = { id: "sceneAsset", label: "Asset", icon: "◈" };
+const ARCHITECTURE_TAB: TabDescriptor = { id: "architecture", label: "Arch", icon: "◧" };
+
 export function InspectorPanel({
+  projectId,
   saving,
   validating,
   validationReports,
@@ -44,10 +64,27 @@ export function InspectorPanel({
 }: Props) {
   const inspectorTab = useWorkspaceUiStore((s) => s.inspectorTab);
   const setInspectorTab = useWorkspaceUiStore((s) => s.setInspectorTab);
+  const architectureEditMode = useWorkspaceUiStore((s) => s.architectureEditMode);
 
   const selection = useSelection();
   const cabinet = useSelectedCabinet();
   const room = useSelectedRoom();
+  const sceneAssetInstance = useSelectedSceneAssetInstance();
+  const sceneAssetDefinitions = useSceneAssetsStore((s) => s.definitions);
+  const sceneAssetDefinition = sceneAssetInstance
+    ? sceneAssetDefinitions.find((d) => d.id === sceneAssetInstance.assetDefinitionId)
+    : undefined;
+
+  // Tabs — Scene Asset tab appears only when the feature flag is on;
+  // Architecture tab appears only when architecture edit mode is on.
+  // When either is disabled, the tab's InspectorTab value stays type-
+  // safe but is unreachable through the strip.
+  const tabs = useMemo<readonly TabDescriptor[]>(() => {
+    const list: TabDescriptor[] = [...BASE_TABS];
+    if (SCENE_ASSETS_ENABLED) list.push(SCENE_ASSET_TAB);
+    if (architectureEditMode === "on") list.push(ARCHITECTURE_TAB);
+    return list;
+  }, [architectureEditMode]);
 
   // Auto-focus the Cabinet tab when a cabinet is newly selected — but
   // never override an explicit user choice made after the fact.
@@ -55,6 +92,26 @@ export function InspectorPanel({
     if (selection.kind === "cabinet") setInspectorTab("cabinet");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection.kind === "cabinet" ? selection.cabinetId : null]);
+
+  // Same auto-focus behavior for Scene Asset selection.
+  useEffect(() => {
+    if (selection.kind === "sceneAsset") setInspectorTab("sceneAsset");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.kind === "sceneAsset" ? selection.assetInstanceId : null]);
+
+  // Auto-focus Architecture tab when a wall or opening is selected.
+  useEffect(() => {
+    if (selection.kind === "wall" || selection.kind === "opening") {
+      setInspectorTab("architecture");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selection.kind === "wall"
+      ? selection.wallId
+      : selection.kind === "opening"
+        ? `${selection.wallId}:${selection.openingId}`
+        : null,
+  ]);
 
   const currentReport =
     selection.kind === "cabinet" ? validationReports[selection.cabinetId] : undefined;
@@ -72,7 +129,7 @@ export function InspectorPanel({
         className="flex items-center flex-shrink-0"
         style={{ borderBottom: "1px solid #1E2226" }}
       >
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const active = inspectorTab === tab.id;
           return (
             <button
@@ -125,6 +182,24 @@ export function InspectorPanel({
           ))}
         {inspectorTab === "material" && <MaterialInspector selectedCabinet={cabinet} />}
         {inspectorTab === "room" && <RoomInspector room={room} />}
+        {inspectorTab === "sceneAsset" && SCENE_ASSETS_ENABLED && (
+          sceneAssetInstance ? (
+            <SceneAssetInspector
+              projectId={projectId}
+              instance={sceneAssetInstance}
+              definition={sceneAssetDefinition}
+            />
+          ) : (
+            <SceneAssetInspectorEmpty />
+          )
+        )}
+        {inspectorTab === "architecture" && architectureEditMode === "on" && (
+          room ? (
+            <ArchitectureInspector projectId={projectId} room={room} />
+          ) : (
+            <ArchitectureInspectorEmpty />
+          )
+        )}
       </div>
     </aside>
   );

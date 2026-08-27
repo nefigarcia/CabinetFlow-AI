@@ -23,7 +23,7 @@
     "db:generate": {
       "cache": false
     },
-    "db:migrate": {
+    "db:migrate:local-only": {
       "cache": false
     }
   }

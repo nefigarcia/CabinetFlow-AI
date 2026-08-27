@@ -124,8 +124,9 @@ model Room {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  cabinets Cabinet[]
+  project             Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cabinets            Cabinet[]
+  sceneAssetInstances SceneAssetInstance[]
 
   @@index([projectId])
   @@index([orgId])
@@ -444,7 +445,58 @@ model Quote {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 17. INSTALLER FEEDBACK
+// 17. SCENE ASSET INSTANCES
+// Per-room placement of a visualization / reference asset (furniture,
+// appliance, plumbing fixture, decor). The catalog itself lives in shared
+// code (`@woodcraft/shared` — `DEFAULT_SCENE_ASSET_CATALOG`); no DB table
+// backs SceneAssetDefinition. Ownership pattern mirrors Cabinet exactly:
+// `orgId` + `roomId` only, project is derived via `room.project`.
+// See packages/db/MIGRATIONS.md and Slice 6 report for context.
+// ─────────────────────────────────────────────────────────────────────────────
+model SceneAssetInstance {
+  id                String   @id @default(cuid())
+  orgId             String   @map("org_id")
+  roomId            String   @map("room_id")
+
+  // Catalog reference — validated at API layer against
+  // DEFAULT_SCENE_ASSET_CATALOG. No FK because the catalog lives in code.
+  assetDefinitionId String   @map("asset_definition_id") @db.VarChar(191)
+
+  // Position in millimeters, bottom-center anchor.
+  posX              Decimal  @default(0) @map("pos_x") @db.Decimal(10, 4)
+  posY              Decimal  @default(0) @map("pos_y") @db.Decimal(10, 4)
+  posZ              Decimal  @default(0) @map("pos_z") @db.Decimal(10, 4)
+
+  // Rotation in degrees.
+  rotX              Decimal  @default(0) @map("rot_x") @db.Decimal(10, 4)
+  rotY              Decimal  @default(0) @map("rot_y") @db.Decimal(10, 4)
+  rotZ              Decimal  @default(0) @map("rot_z") @db.Decimal(10, 4)
+
+  // Scale — persisted for future GLB normalization. Held at identity in
+  // MVP; not user-editable through the create/update API.
+  scaleX            Decimal  @default(1) @map("scale_x") @db.Decimal(10, 6)
+  scaleY            Decimal  @default(1) @map("scale_y") @db.Decimal(10, 6)
+  scaleZ            Decimal  @default(1) @map("scale_z") @db.Decimal(10, 6)
+
+  visible           Boolean  @default(true)
+
+  // Physical column is LONGTEXT (matches every other Json column on this
+  // legacy DB — see packages/db/MIGRATIONS.md "Known drift alert").
+  // Prisma Client reads/writes as JSON via its `Json` type.
+  materialOverrides Json?    @map("material_overrides")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([orgId])
+  @@map("scene_asset_instances")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 18. INSTALLER FEEDBACK
 // Field reports from installers — drives AI improvement loop.
 // ─────────────────────────────────────────────────────────────────────────────
 model InstallerFeedback {

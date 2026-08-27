@@ -128,3 +128,12 @@ export * from "./parity";
 
 // Material & Texture Rendering MVP (V2.6.0). Browser-render-only domain.
 export * from "./materials";
+
+// Scene Asset Domain (Slice 1). Visualization / reference objects that
+// complement — but never replace — the Cabinet Domain.
+export * from "./sceneAssets";
+
+// Room Architecture Engine. Deterministic walls/floor/ceiling/openings.
+// Independent of Cabinet Domain and Scene Assets — defines the space
+// they are placed inside.
+export * from "./architecture";

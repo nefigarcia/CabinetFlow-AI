@@ -11,11 +11,11 @@
     "lint": "turbo lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "db:generate": "turbo db:generate",
-    "db:push": "npm run --prefix packages/db db:push",
-    "db:migrate": "npm run --prefix packages/db db:migrate",
+    "db:push:local-only-danger": "npm run --prefix packages/db db:push:local-only-danger",
+    "db:migrate:local-only": "npm run --prefix packages/db db:migrate:local-only",
     "db:migrate:prod": "npm run --prefix packages/db db:migrate:prod",
     "db:studio": "npm run --prefix packages/db db:studio",
-    "db:reset": "npm run --prefix packages/db db:reset"
+    "db:reset:local-only-danger": "npm run --prefix packages/db db:reset:local-only-danger"
   },
   "devDependencies": {
     "prettier": "^3.3.0",
