@@ -31,7 +31,7 @@ export function removeInstance(
 export type SceneAssetInstancePatch = Partial<
   Pick<
     SceneAssetInstance,
-    "positionMm" | "rotationDeg" | "scale" | "visible" | "materialOverrides"
+    "positionMm" | "rotationDeg" | "scale" | "visible" | "placement" | "materialOverrides"
   >
 >;
 

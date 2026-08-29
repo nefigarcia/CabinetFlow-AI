@@ -3,7 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateSceneAssetInstanceSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
-import { serializeSceneAssetInstance } from "@/lib/sceneAssetSerializer";
+import {
+  placementToColumns,
+  serializeSceneAssetInstance,
+} from "@/lib/sceneAssetSerializer";
+import {
+  getRoomArchitecture,
+  normalizeInstancePlacement,
+} from "@woodcraft/shared";
 import { Prisma } from "@woodcraft/db";
 
 type Params = { params: { id: string; roomId: string; instanceId: string } };
@@ -15,9 +22,8 @@ async function assertRoom(roomId: string, projectId: string, orgId: string) {
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { orgId } = getContext(req);
 
-  if (!(await assertRoom(params.roomId, params.id, orgId))) {
-    return apiError("Room not found", 404);
-  }
+  const room = await assertRoom(params.roomId, params.id, orgId);
+  if (!room) return apiError("Room not found", 404);
 
   let body: unknown;
   try {
@@ -50,6 +56,30 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     data.rotZ = parsed.data.rotationDeg.z;
   }
   if (parsed.data.visible !== undefined) data.visible = parsed.data.visible;
+  if (parsed.data.placement !== undefined) {
+    const placement = normalizeInstancePlacement(parsed.data.placement);
+    if (placement.mode === "wall") {
+      const arch = getRoomArchitecture({
+        metadata: room.metadata as Record<string, unknown> | null,
+        width: Number(room.width),
+        height: Number(room.height),
+        depth: Number(room.depth),
+      });
+      if (!arch.walls.some((w) => w.id === placement.wall!.wallId)) {
+        return apiError(
+          `Unknown wallId for wall attachment: ${placement.wall!.wallId}`,
+          422,
+          "VALIDATION_ERROR",
+        );
+      }
+    }
+    const cols = placementToColumns(placement);
+    data.placementMode = cols.placementMode;
+    data.wallId = cols.wallId;
+    data.wallLocalX = cols.wallLocalX;
+    data.wallLocalY = cols.wallLocalY;
+    data.wallLocalZ = cols.wallLocalZ;
+  }
   if (parsed.data.materialOverrides !== undefined) {
     // `null` clears the overrides; an object replaces them.
     data.materialOverrides =

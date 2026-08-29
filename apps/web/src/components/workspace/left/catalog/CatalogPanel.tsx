@@ -6,12 +6,17 @@ import {
   filterCatalogForRoomType,
   getDefaultSceneAssetPlacement,
   getRecommendedCategoriesForRoomType,
+  getRoomArchitecture,
   getRoomType,
+  getWallLengthMm,
+  isWallMounted,
+  resolveWallAttachedSceneAssetTransform,
   SCENE_ASSET_CATEGORY_LABELS,
   searchCatalog,
   type PlacementWarning,
   type SceneAssetCategory,
   type SceneAssetDefinition,
+  type SceneAssetInstancePlacement,
 } from "@woodcraft/shared";
 import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
@@ -45,6 +50,7 @@ export function CatalogPanel({ projectId }: Props) {
   const selectedRoomId = useEditorStore((s) => s.selectedRoomId);
   const rooms = useEditorStore((s) => s.rooms);
   const selectSceneAsset = useEditorStore((s) => s.selectSceneAsset);
+  const selectedWallId = useEditorStore((s) => s.selectedWallId);
 
   const { create, saving } = useSceneAssets(projectId);
 
@@ -100,21 +106,83 @@ export function CatalogPanel({ projectId }: Props) {
   const handlePlace = async (definition: SceneAssetDefinition) => {
     if (!canPlace || !room || placingId) return;
 
-    const placement = getDefaultSceneAssetPlacement({ room, definition });
+    // Wall-mounted definitions attach at the deterministic center of the
+    // currently selected wall (or the first wall in the architecture if
+    // none is selected). No fallback to floor-center — placing a sconce
+    // on the floor would misrepresent its intent.
+    let placementMode: SceneAssetInstancePlacement = { mode: "free" };
+    let worldPositionMm = { x: 0, y: 0, z: 0 };
+    let worldRotationDeg = { x: 0, y: 0, z: 0 };
+    let warnings: PlacementWarning[] = [];
+
+    if (isWallMounted(definition.placement)) {
+      const architecture = getRoomArchitecture({
+        metadata: room.metadata ?? null,
+        width: Number(room.width),
+        height: Number(room.height),
+        depth: Number(room.depth),
+      });
+      // Require an EXPLICIT wall selection — never silently pick walls[0].
+      // Picking a "first wall" for the user hides the intent question
+      // (which wall?) and produces confusingly-placed assets on rooms
+      // with more than one exterior wall. Ask instead.
+      if (!selectedWallId) {
+        setPlacementError(
+          `${definition.name} is wall-mounted. Select a wall in the 3D view (or the Architecture tab) first, then click again.`,
+        );
+        return;
+      }
+      const targetWall = architecture.walls.find((w) => w.id === selectedWallId);
+      if (!targetWall) {
+        setPlacementError(
+          `${definition.name} is wall-mounted, but the selected wall no longer exists in this room's architecture.`,
+        );
+        return;
+      }
+      const wallLength = getWallLengthMm(targetWall);
+      const halfHeight = definition.dimensionsMm.heightMm / 2;
+      // Center along wall; mid-height above floor as a sensible default
+      // (sconces, mirrors, art all sit somewhere in the upper half).
+      const anchor = {
+        x: wallLength / 2,
+        y: Math.max(halfHeight, targetWall.heightMm / 2),
+        z: 0,
+      };
+      placementMode = {
+        mode: "wall",
+        wall: { wallId: targetWall.id, localPositionMm: anchor },
+      };
+      const resolved = resolveWallAttachedSceneAssetTransform({
+        attachment: placementMode.wall!,
+        definition,
+        architecture,
+      });
+      if (resolved) {
+        worldPositionMm = resolved.positionMm;
+        worldRotationDeg = resolved.rotationDeg;
+      }
+    } else {
+      const defaults = getDefaultSceneAssetPlacement({ room, definition });
+      worldPositionMm = defaults.transform.positionMm;
+      worldRotationDeg = defaults.transform.rotationDeg;
+      warnings = defaults.warnings;
+    }
+
     setPlacingId(definition.id);
     setPlacementError(null);
     try {
       const instance = await create({
         assetDefinitionId: definition.id,
-        positionMm: placement.transform.positionMm,
-        rotationDeg: placement.transform.rotationDeg,
+        positionMm: worldPositionMm,
+        rotationDeg: worldRotationDeg,
         visible: true,
+        placement: placementMode,
       });
       if (instance) {
         selectSceneAsset(instance.id);
         setLastPlacement({
           definitionName: definition.name,
-          warnings: placement.warnings,
+          warnings,
         });
       } else {
         setPlacementError(

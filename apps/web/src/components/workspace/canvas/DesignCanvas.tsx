@@ -9,6 +9,7 @@ import { useEditorStore } from "@/store/editor";
 import { useWorkspaceUiStore } from "../state/use-workspace-ui";
 import { RoomShell } from "@/components/editor/RoomShell";
 import { CabinetSceneItem } from "./scene/CabinetSceneItem";
+import { DrawWallTool } from "./scene/DrawWallTool";
 import { SceneAssetLayer } from "./scene/SceneAssetLayer";
 import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import type { Cabinet, Room } from "@woodcraft/shared";
@@ -86,6 +87,9 @@ export function DesignCanvas({ projectId, room, cabinets }: Props) {
           the flag OFF tree-shake the layer entirely. Cabinet rendering
           above is unchanged. */}
       {SCENE_ASSETS_ENABLED && <SceneAssetLayer projectId={projectId} />}
+      {/* Draw-wall canvas tool — mounted always but self-gates on the
+          architecture edit mode + draw phase. */}
+      <DrawWallTool projectId={projectId} room={room} />
       <FitViewOnRequest />
       <Environment preset="warehouse" background={false} />
     </Canvas>

@@ -23,6 +23,18 @@ export {
   sceneAssetPlacementSchema,
 } from "./scene-asset-placement";
 
+export type {
+  SceneAssetInstancePlacement,
+  SceneAssetPlacementMode,
+  WallAttachment,
+} from "./instance-placement";
+export {
+  DEFAULT_INSTANCE_PLACEMENT,
+  isWallAttached,
+  normalizeInstancePlacement,
+  sceneAssetInstancePlacementSchema,
+} from "./instance-placement";
+
 export type { SceneAssetCollision } from "./scene-asset-collision";
 export {
   DEFAULT_COLLISION,

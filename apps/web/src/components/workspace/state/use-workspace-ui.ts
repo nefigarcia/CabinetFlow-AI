@@ -28,6 +28,18 @@ export type SceneAssetTransformMode = "translate" | "rotate";
  *  opening selection + overlays. */
 export type ArchitectureEditMode = "off" | "on";
 
+/** Draw-wall canvas tool state.
+ *   · "idle"        — no draw in progress
+ *   · "awaitStart"  — the tool is armed; the next floor click sets the start
+ *   · "awaitEnd"    — start captured; the next floor click completes the wall
+ */
+export type DrawWallPhase = "idle" | "awaitStart" | "awaitEnd";
+export interface DrawWallState {
+  phase: DrawWallPhase;
+  /** Populated during "awaitEnd" — world XZ mm. */
+  startMm: { x: number; z: number } | null;
+}
+
 interface WorkspaceUiState {
   activeView: ViewMode;
   inspectorTab: InspectorTab;
@@ -47,6 +59,9 @@ interface WorkspaceUiState {
    *  separate so a future "always show" view preference is distinct from
    *  the editing entry point. */
   showArchitectureOverlays: boolean;
+  /** Multi-click draw-wall canvas tool. Only meaningful when
+   *  architectureEditMode === "on". */
+  drawWall: DrawWallState;
 
   setActiveView: (view: ViewMode) => void;
   setInspectorTab: (tab: InspectorTab) => void;
@@ -57,11 +72,14 @@ interface WorkspaceUiState {
   setSceneAssetTransformMode: (mode: SceneAssetTransformMode) => void;
   setArchitectureEditMode: (mode: ArchitectureEditMode) => void;
   setShowArchitectureOverlays: (visible: boolean) => void;
+  startDrawWall: () => void;
+  setDrawWallStart: (startMm: { x: number; z: number }) => void;
+  cancelDrawWall: () => void;
 }
 
-/** Only "3d" is functional today. The other view modes render as disabled
- *  in the header per the STEP 1 honesty rule. */
-export const IMPLEMENTED_VIEW_MODES: readonly ViewMode[] = ["3d"];
+/** 3D, 2D floor plan, and elevation views are all backed by the
+ *  architecture domain. Walkthrough remains deferred. */
+export const IMPLEMENTED_VIEW_MODES: readonly ViewMode[] = ["3d", "2d", "elevation"];
 
 export const useWorkspaceUiStore = create<WorkspaceUiState>((set, get) => ({
   activeView: "3d",
@@ -72,6 +90,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>((set, get) => ({
   sceneAssetTransformMode: "translate",
   architectureEditMode: "off",
   showArchitectureOverlays: false,
+  drawWall: { phase: "idle", startMm: null },
 
   setActiveView: (view) => {
     if (!IMPLEMENTED_VIEW_MODES.includes(view)) return;
@@ -92,4 +111,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>((set, get) => ({
         architectureEditMode === "on" ? true : s.showArchitectureOverlays,
     })),
   setShowArchitectureOverlays: (showArchitectureOverlays) => set({ showArchitectureOverlays }),
+  startDrawWall: () => set({ drawWall: { phase: "awaitStart", startMm: null } }),
+  setDrawWallStart: (startMm) => set({ drawWall: { phase: "awaitEnd", startMm } }),
+  cancelDrawWall: () => set({ drawWall: { phase: "idle", startMm: null } }),
 }));

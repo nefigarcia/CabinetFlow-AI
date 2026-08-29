@@ -3,8 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, createSceneAssetInstanceSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
-import { serializeSceneAssetInstance } from "@/lib/sceneAssetSerializer";
-import { DEFAULT_SCENE_ASSET_CATALOG } from "@woodcraft/shared";
+import {
+  placementToColumns,
+  serializeSceneAssetInstance,
+} from "@/lib/sceneAssetSerializer";
+import {
+  DEFAULT_SCENE_ASSET_CATALOG,
+  getRoomArchitecture,
+  normalizeInstancePlacement,
+} from "@woodcraft/shared";
 
 type Params = { params: { id: string; roomId: string } };
 
@@ -36,9 +43,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 export async function POST(req: NextRequest, { params }: Params) {
   const { orgId } = getContext(req);
 
-  if (!(await assertRoom(params.roomId, params.id, orgId))) {
-    return apiError("Room not found", 404);
-  }
+  const room = await assertRoom(params.roomId, params.id, orgId);
+  if (!room) return apiError("Room not found", 404);
 
   let body: unknown;
   try {
@@ -60,6 +66,26 @@ export async function POST(req: NextRequest, { params }: Params) {
     );
   }
 
+  const placement = normalizeInstancePlacement(parsed.data.placement);
+  if (placement.mode === "wall") {
+    // getRoomArchitecture guards metadata shape internally; Prisma types
+    // `metadata` as JsonValue which is wider than the domain expects.
+    const arch = getRoomArchitecture({
+      metadata: room.metadata as Record<string, unknown> | null,
+      width: Number(room.width),
+      height: Number(room.height),
+      depth: Number(room.depth),
+    });
+    if (!arch.walls.some((w) => w.id === placement.wall!.wallId)) {
+      return apiError(
+        `Unknown wallId for wall attachment: ${placement.wall!.wallId}`,
+        422,
+        "VALIDATION_ERROR",
+      );
+    }
+  }
+  const cols = placementToColumns(placement);
+
   const row = await prisma.sceneAssetInstance.create({
     data: {
       orgId,
@@ -73,6 +99,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       rotZ: parsed.data.rotationDeg?.z ?? 0,
       // Scale intentionally omitted — Prisma applies the schema defaults (1, 1, 1).
       visible: parsed.data.visible ?? true,
+      placementMode: cols.placementMode,
+      wallId: cols.wallId,
+      wallLocalX: cols.wallLocalX,
+      wallLocalY: cols.wallLocalY,
+      wallLocalZ: cols.wallLocalZ,
       materialOverrides: parsed.data.materialOverrides ?? undefined,
     },
   });

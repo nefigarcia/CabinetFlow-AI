@@ -6,6 +6,7 @@ import type { CompiledOpening, WallSegment } from "./wall-compiler";
 import { compileWall } from "./wall-compiler";
 import { wallLocalToWorld } from "./wall-math";
 import type { RoomArchitecture, WallDefinition } from "./types";
+import { extractFloorPolygon, pointInPolygon } from "./polygon";
 
 // Scene-asset ↔ architecture spatial bridge.
 //
@@ -95,15 +96,21 @@ export function validateAssetAgainstArchitecture(input: {
     }
   }
 
-  // Room footprint: rectangular bounds from all wall endpoints.
-  const footprint = getRoomFloorFootprint(architecture);
-  if (footprint) {
-    if (
-      assetAabb.min.x < footprint.min.x ||
-      assetAabb.max.x > footprint.max.x ||
-      assetAabb.min.z < footprint.min.z ||
-      assetAabb.max.z > footprint.max.z
-    ) {
+  // Room footprint: polygon containment. For legacy rectangular rooms
+  // this is exactly equivalent to the AABB check. For custom polygons
+  // (custom architecture mode) it catches assets placed in concavities /
+  // outside irregular walls. Sampling the four XZ corners of the asset
+  // AABB is a broad-phase check — good enough to flag obvious violations
+  // without doing full polygon-polygon intersection.
+  const polygon = extractFloorPolygon(architecture);
+  if (polygon) {
+    const cornersXZ = [
+      { x: assetAabb.min.x, z: assetAabb.min.z },
+      { x: assetAabb.max.x, z: assetAabb.min.z },
+      { x: assetAabb.min.x, z: assetAabb.max.z },
+      { x: assetAabb.max.x, z: assetAabb.max.z },
+    ];
+    if (cornersXZ.some((c) => !pointInPolygon(c, polygon))) {
       issues.push({
         code: "ASSET_OUTSIDE_ROOM_FOOTPRINT",
         severity: "warning",

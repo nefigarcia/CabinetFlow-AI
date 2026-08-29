@@ -480,6 +480,18 @@ model SceneAssetInstance {
 
   visible           Boolean  @default(true)
 
+  // Placement anchor. `placementMode = "free"` (the default) means
+  // pos/rot are authoritative. `placementMode = "wall"` means the
+  // wall_id + wall_local_* columns are authoritative and the renderer
+  // derives the world transform via the wall-attachment resolver.
+  // Legacy rows land as `placement_mode = "free"` + all wall_* NULL.
+  // No FK on wall_id — walls live in `rooms.metadata.architecture` JSON.
+  placementMode String  @default("free") @map("placement_mode") @db.VarChar(32)
+  wallId        String? @map("wall_id") @db.VarChar(191)
+  wallLocalX    Decimal? @map("wall_local_x") @db.Decimal(10, 4)
+  wallLocalY    Decimal? @map("wall_local_y") @db.Decimal(10, 4)
+  wallLocalZ    Decimal? @map("wall_local_z") @db.Decimal(10, 4)
+
   // Physical column is LONGTEXT (matches every other Json column on this
   // legacy DB — see packages/db/MIGRATIONS.md "Known drift alert").
   // Prisma Client reads/writes as JSON via its `Json` type.

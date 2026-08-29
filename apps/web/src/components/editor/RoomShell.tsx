@@ -1,15 +1,23 @@
 "use client";
 
 import { useMemo } from "react";
-import type * as THREE from "three";
+import * as THREE from "three";
+import { Html, Line } from "@react-three/drei";
+import { useEditorStore } from "@/store/editor";
 import {
   compileWall,
+  extractFloorPolygon,
+  getDoorSwingGeometry,
   getRoomArchitecture,
   mmToMeters,
+  polygonAabb,
+  wallLocalToWorld,
   type Cabinet,
   type CompiledOpening,
+  type FloorPolygon,
   type Room,
   type WallDefinition,
+  type WallOpening,
   type WallSegment,
 } from "@woodcraft/shared";
 import { useMaterialsStore } from "@/store/materials";
@@ -58,12 +66,34 @@ export function RoomShell({ room, cabinets }: Props) {
   const hMm = Number(room.height);
   const dMm = Number(room.depth);
 
+  // Floor polygon derived from the walls. For legacy rectangular rooms
+  // this yields exactly the (0,0)→(W,D) rectangle the old renderer had.
+  // For a custom architecture (after Convert-to-Custom + wall moves) it
+  // tracks the true polygon.
+  const floorPolygon = useMemo(
+    () => extractFloorPolygon(architecture),
+    [architecture],
+  );
+
+  // Face-size hint for the material system — use the polygon AABB so
+  // texture tiling stays sane for irregular rooms. Falls back to the
+  // room W×D for the degenerate no-polygon case.
+  const floorFaceMm = useMemo(() => {
+    if (!floorPolygon) return { widthMm: wMm, heightMm: dMm };
+    const b = polygonAabb(floorPolygon);
+    if (!b) return { widthMm: wMm, heightMm: dMm };
+    return {
+      widthMm: b.max.x - b.min.x,
+      heightMm: b.max.z - b.min.z,
+    };
+  }, [floorPolygon, wMm, dMm]);
+
   const floorMat = useSlotMaterial(selection, null, "floor", {
-    face: { widthMm: wMm, heightMm: dMm },
+    face: floorFaceMm,
   });
 
   const ceilingMat = useSlotMaterial(selection, null, "wall", {
-    face: { widthMm: wMm, heightMm: dMm },
+    face: floorFaceMm,
   });
 
   const backsplashMat = useSlotMaterial(selection, null, "backsplash", {
@@ -78,14 +108,18 @@ export function RoomShell({ room, cabinets }: Props) {
 
   return (
     <group>
-      {/* Floor — thin slab centered under the room, top face at y=0 */}
-      <mesh
-        position={[mmToMeters(wMm) / 2, -0.01, mmToMeters(dMm) / 2]}
-        receiveShadow
-        material={floorMat}
-      >
-        <boxGeometry args={[mmToMeters(wMm), 0.02, mmToMeters(dMm)]} />
-      </mesh>
+      {/* Floor — flat mesh cut to the polygon shape. Legacy rooms have a
+          4-vertex polygon and are rendered identically to the old box
+          slab (with y ≈ 0, receiveShadow on). Custom rooms follow the
+          polygon exactly. */}
+      {floorPolygon && (
+        <PolygonSlab
+          polygon={floorPolygon}
+          yM={-0.005}
+          material={floorMat}
+          faceUp
+        />
+      )}
 
       {/* Walls — one WallGroup per architectural wall. */}
       {architecture.walls.map((wall) => (
@@ -93,14 +127,13 @@ export function RoomShell({ room, cabinets }: Props) {
       ))}
 
       {/* Ceiling — hidden by default so the camera can look inside. */}
-      {ceilingVisibility === "visible" && (
-        <mesh
-          position={[mmToMeters(wMm) / 2, mmToMeters(hMm) + 0.01, mmToMeters(dMm) / 2]}
-          receiveShadow
+      {ceilingVisibility === "visible" && floorPolygon && (
+        <PolygonSlab
+          polygon={floorPolygon}
+          yM={mmToMeters(hMm) + 0.005}
           material={ceilingMat}
-        >
-          <boxGeometry args={[mmToMeters(wMm), 0.02, mmToMeters(dMm)]} />
-        </mesh>
+          faceUp={false}
+        />
       )}
 
       {/* Backsplash — kept for kitchen material previews. Positioned on the
@@ -121,19 +154,88 @@ export function RoomShell({ room, cabinets }: Props) {
         </mesh>
       )}
 
-      {/* Architecture overlays: door/window outlines. Editor-only. */}
+      {/* Architecture overlays: door/window outlines + door swing arcs.
+          Editor-only. */}
       {showArchitectureOverlays &&
         architecture.walls.flatMap((wall) => {
           const compiled = compileWall(wall);
-          return compiled.openings.map((op) => (
-            <OpeningOutline
-              key={`${wall.id}:${op.openingId}`}
-              wall={wall}
-              opening={op}
-            />
-          ));
+          return [
+            ...compiled.openings.map((op) => (
+              <OpeningOutline
+                key={`${wall.id}:${op.openingId}`}
+                wall={wall}
+                opening={op}
+              />
+            )),
+            ...wall.openings
+              .filter((op): op is Extract<WallOpening, { type: "door" }> => op.type === "door")
+              .map((door) => (
+                <DoorSwingOverlay
+                  key={`${wall.id}:${door.id}:swing`}
+                  wall={wall}
+                  door={door}
+                />
+              )),
+            ...wall.openings
+              .filter((op): op is Extract<WallOpening, { type: "window" }> => op.type === "window")
+              .map((win) => (
+                <WindowFrameOverlay
+                  key={`${wall.id}:${win.id}:frame`}
+                  wall={wall}
+                  window={win}
+                />
+              )),
+          ];
         })}
+
+      {/* Dimension callouts for the currently-selected wall. Only shown
+          in architecture-overlay mode so they don't clutter the default
+          view. */}
+      {showArchitectureOverlays && <SelectedWallDimensions architecture={architecture} />}
     </group>
+  );
+}
+
+// ── Polygon floor / ceiling ─────────────────────────────────────────────
+
+function PolygonSlab({
+  polygon,
+  yM,
+  material,
+  faceUp,
+}: {
+  polygon: FloorPolygon;
+  yM: number;
+  material: THREE.Material;
+  faceUp: boolean;
+}) {
+  // ShapeGeometry lives in the XY plane by default. We build a Shape
+  // from the wall polygon (converted to meters), then rotate the mesh
+  // -90° around X so the shape lies flat on world XZ. faceUp=false
+  // (ceiling) flips the normal by rotating +90° instead so the material
+  // faces DOWN into the room.
+  const shape = useMemo(() => {
+    const s = new THREE.Shape();
+    const pts = polygon.pointsMm;
+    if (pts.length < 3) return s;
+    s.moveTo(mmToMeters(pts[0]!.x), mmToMeters(pts[0]!.z));
+    for (let i = 1; i < pts.length; i++) {
+      s.lineTo(mmToMeters(pts[i]!.x), mmToMeters(pts[i]!.z));
+    }
+    s.closePath();
+    return s;
+  }, [polygon]);
+
+  const rotX = faceUp ? -Math.PI / 2 : Math.PI / 2;
+  return (
+    <mesh
+      position={[0, yM, 0]}
+      rotation={[rotX, 0, 0]}
+      receiveShadow
+      material={material}
+    >
+      <shapeGeometry args={[shape]} />
+    </mesh>
   );
 }
 
@@ -221,6 +323,51 @@ const OPENING_OUTLINE_COLOR: Record<CompiledOpening["type"], string> = {
   opening: "#9a9288",
 };
 
+const DOOR_SWING_COLOR = "#c8852a";
+const DOOR_SWING_Y_M = 0.005;
+
+function DoorSwingOverlay({
+  wall,
+  door,
+}: {
+  wall: WallDefinition;
+  door: Extract<WallOpening, { type: "door" }>;
+}) {
+  const geometry = useMemo(() => getDoorSwingGeometry(wall, door), [wall, door]);
+
+  // Convert mm → meter tuples for drei's Line component. The arc + leaf
+  // are drawn as two separate polylines so the leaf visually stands out.
+  const arcPoints = useMemo(
+    () =>
+      geometry.arcPointsMm.map(
+        (p) => new THREE.Vector3(mmToMeters(p.x), DOOR_SWING_Y_M, mmToMeters(p.z)),
+      ),
+    [geometry],
+  );
+  const leafPoints = useMemo(
+    () => [
+      new THREE.Vector3(
+        mmToMeters(geometry.hingeMm.x),
+        DOOR_SWING_Y_M,
+        mmToMeters(geometry.hingeMm.z),
+      ),
+      new THREE.Vector3(
+        mmToMeters(geometry.leafEndMm.x),
+        DOOR_SWING_Y_M,
+        mmToMeters(geometry.leafEndMm.z),
+      ),
+    ],
+    [geometry],
+  );
+
+  return (
+    <group>
+      <Line points={arcPoints} color={DOOR_SWING_COLOR} lineWidth={1} />
+      <Line points={leafPoints} color={DOOR_SWING_COLOR} lineWidth={1.5} />
+    </group>
+  );
+}
+
 function OpeningOutline({
   wall,
   opening,
@@ -259,6 +406,155 @@ function OpeningOutline({
           opacity={0.55}
         />
       </mesh>
+    </group>
+  );
+}
+
+// ── Window frame / mullion overlay ──────────────────────────────────────
+
+const WINDOW_FRAME_COLOR = "#6ab5c8";
+const WINDOW_FRAME_Z_OFFSET_MM = 5; // sit just outside the wall face
+
+function WindowFrameOverlay({
+  wall,
+  window: win,
+}: {
+  wall: WallDefinition;
+  window: Extract<WallOpening, { type: "window" }>;
+}) {
+  const compiled = useMemo(() => compileWall(wall), [wall]);
+  const frame = compiled.frame;
+
+  // Frame rectangle (wall-local X, Y) at z = wall thickness + tiny epsilon
+  // so it hugs the outer face of the wall.
+  const xStart = Math.max(0, win.offsetMm);
+  const xEnd = Math.min(frame.lengthMm, win.offsetMm + win.widthMm);
+  const yBot = Math.max(0, win.sillHeightMm);
+  const yTop = Math.min(wall.heightMm, win.sillHeightMm + win.heightMm);
+
+  const cornersLocal = [
+    { xMm: xStart, yMm: yBot, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xEnd, yMm: yBot, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xEnd, yMm: yTop, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xStart, yMm: yTop, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xStart, yMm: yBot, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
+  ];
+  const framePts = useMemo(
+    () =>
+      cornersLocal.map((p) => {
+        const w = wallLocalToWorld(frame, p);
+        return new THREE.Vector3(mmToMeters(w.x), mmToMeters(w.y), mmToMeters(w.z));
+      }),
+    [frame, cornersLocal],
+  );
+
+  // Mullion at the center for wide windows — simple architectural hint.
+  const showMullion = xEnd - xStart > 900;
+  const xMid = (xStart + xEnd) / 2;
+  const mullionPts = useMemo(() => {
+    if (!showMullion) return null;
+    const a = wallLocalToWorld(frame, {
+      xMm: xMid,
+      yMm: yBot,
+      zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM,
+    });
+    const b = wallLocalToWorld(frame, {
+      xMm: xMid,
+      yMm: yTop,
+      zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM,
+    });
+    return [
+      new THREE.Vector3(mmToMeters(a.x), mmToMeters(a.y), mmToMeters(a.z)),
+      new THREE.Vector3(mmToMeters(b.x), mmToMeters(b.y), mmToMeters(b.z)),
+    ];
+  }, [showMullion, frame, xMid, yBot, yTop, wall.thicknessMm]);
+
+  return (
+    <group>
+      <Line points={framePts} color={WINDOW_FRAME_COLOR} lineWidth={1.5} />
+      {mullionPts && (
+        <Line points={mullionPts} color={WINDOW_FRAME_COLOR} lineWidth={1} />
+      )}
+    </group>
+  );
+}
+
+// ── Selected-wall dimension callouts ────────────────────────────────────
+
+const DIM_COLOR = "#c8852a";
+
+function SelectedWallDimensions({
+  architecture,
+}: {
+  architecture: { walls: WallDefinition[] };
+}) {
+  const selectedWallId = useEditorStore((s) => s.selectedWallId);
+  const selectedOpeningId = useEditorStore((s) => s.selectedOpeningId);
+  const wall = selectedWallId
+    ? architecture.walls.find((w) => w.id === selectedWallId)
+    : undefined;
+  if (!wall) return null;
+  const midX = (wall.startMm.x + wall.endMm.x) / 2;
+  const midZ = (wall.startMm.z + wall.endMm.z) / 2;
+  const length = Math.round(
+    Math.hypot(wall.endMm.x - wall.startMm.x, wall.endMm.z - wall.startMm.z),
+  );
+
+  // Extra callouts for the selected opening (if any).
+  const selectedOpening = selectedOpeningId
+    ? wall.openings.find((o) => o.id === selectedOpeningId)
+    : undefined;
+
+  return (
+    <group>
+      <Html
+        position={[mmToMeters(midX), mmToMeters(wall.heightMm) + 0.2, mmToMeters(midZ)]}
+        center
+        distanceFactor={8}
+        style={{ pointerEvents: "none" }}
+      >
+        <div
+          style={{
+            color: DIM_COLOR,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: 11,
+            background: "rgba(15, 17, 20, 0.85)",
+            border: "1px solid #6a5828",
+            padding: "2px 6px",
+            borderRadius: 4,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {wall.id} · {length} mm · h {wall.heightMm} · t {wall.thicknessMm}
+        </div>
+      </Html>
+      {selectedOpening && (
+        <Html
+          position={[
+            mmToMeters(midX),
+            mmToMeters(wall.heightMm) + 0.5,
+            mmToMeters(midZ),
+          ]}
+          center
+          distanceFactor={8}
+          style={{ pointerEvents: "none" }}
+        >
+          <div
+            style={{
+              color: DIM_COLOR,
+              fontFamily: "ui-monospace, monospace",
+              fontSize: 11,
+              background: "rgba(15, 17, 20, 0.85)",
+              border: "1px solid #6a5828",
+              padding: "2px 6px",
+              borderRadius: 4,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {selectedOpening.type} · offset {selectedOpening.offsetMm} · {selectedOpening.widthMm} × {selectedOpening.heightMm} mm
+          </div>
+        </Html>
+      )}
     </group>
   );
 }

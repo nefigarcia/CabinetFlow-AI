@@ -6,8 +6,11 @@ import * as THREE from "three";
 import {
   degreesToRadians,
   getPrimitiveShape,
+  getRoomArchitecture,
   hasModel,
+  isWallAttached,
   mmToMeters,
+  resolveWallAttachedSceneAssetTransform,
   type PrimitiveShape,
   type SceneAssetDefinition,
   type SceneAssetInstance,
@@ -16,6 +19,7 @@ import { useEditorStore } from "@/store/editor";
 import { resolveSceneAssetUrl } from "@/lib/scene/resolveSceneAssetUrl";
 import { SceneAssetLoader } from "@/lib/scene/SceneAssetLoader";
 import { SceneAssetTransformGizmo } from "./SceneAssetTransformGizmo";
+import { WallAttachedTransformGizmo } from "./WallAttachedTransformGizmo";
 
 // Renders a single Scene Asset instance.
 //
@@ -51,6 +55,9 @@ const COLOR_SELECTION = "#c8852a";
 export function SceneAssetItem({ projectId, instance, definition }: Props) {
   const isSelected = useEditorStore((s) => s.selectedSceneAssetId) === instance.id;
   const selectSceneAsset = useEditorStore((s) => s.selectSceneAsset);
+  const room = useEditorStore((s) =>
+    s.rooms.find((r) => r.id === instance.roomId),
+  );
 
   // Group ref stored as React state so mounting the TransformControls
   // gizmo (which needs a live THREE.Object3D target) triggers a rerender
@@ -64,13 +71,35 @@ export function SceneAssetItem({ projectId, instance, definition }: Props) {
   const hM = mmToMeters(definition.dimensionsMm.heightMm);
   const dM = mmToMeters(definition.dimensionsMm.depthMm);
 
-  const pxM = mmToMeters(instance.positionMm.x);
-  const pyM = mmToMeters(instance.positionMm.y);
-  const pzM = mmToMeters(instance.positionMm.z);
+  // Wall-attached instances derive their world transform from the wall.
+  // Free-mode instances use the persisted world transform directly. The
+  // resolver returns null if the wall id no longer exists — we fall back
+  // to the persisted world transform so the asset remains visible and
+  // the user can detach it via the inspector.
+  const resolved =
+    isWallAttached(instance.placement) && room
+      ? resolveWallAttachedSceneAssetTransform({
+          attachment: instance.placement.wall,
+          definition,
+          architecture: getRoomArchitecture({
+            metadata: room.metadata ?? null,
+            width: Number(room.width),
+            height: Number(room.height),
+            depth: Number(room.depth),
+          }),
+        })
+      : null;
 
-  const rx = degreesToRadians(instance.rotationDeg.x);
-  const ry = degreesToRadians(instance.rotationDeg.y);
-  const rz = degreesToRadians(instance.rotationDeg.z);
+  const worldPos = resolved?.positionMm ?? instance.positionMm;
+  const worldRot = resolved?.rotationDeg ?? instance.rotationDeg;
+
+  const pxM = mmToMeters(worldPos.x);
+  const pyM = mmToMeters(worldPos.y);
+  const pzM = mmToMeters(worldPos.z);
+
+  const rx = degreesToRadians(worldRot.x);
+  const ry = degreesToRadians(worldRot.y);
+  const rz = degreesToRadians(worldRot.z);
 
   const shape = getPrimitiveShape(definition);
   const modelUrl = hasModel(definition)
@@ -108,11 +137,23 @@ export function SceneAssetItem({ projectId, instance, definition }: Props) {
           <SelectionBoundingBox widthM={wM} heightM={hM} depthM={dM} />
         )}
       </group>
-      {isSelected && groupObject && (
+      {/* Free-XYZ TransformControls only for free-mode instances. */}
+      {isSelected && groupObject && !isWallAttached(instance.placement) && (
         <SceneAssetTransformGizmo
           projectId={projectId}
           instance={instance}
           target={groupObject}
+        />
+      )}
+      {/* Wall-local gizmo (translate-only, X + Y, wall-axis constrained)
+          when a wall attachment is active AND the referenced wall still
+          exists (`resolved` guarantees the wall). */}
+      {isSelected && isWallAttached(instance.placement) && resolved && (
+        <WallAttachedTransformGizmo
+          projectId={projectId}
+          instance={instance as SceneAssetInstance & { placement: typeof instance.placement }}
+          definition={definition}
+          wall={resolved.wall}
         />
       )}
     </>

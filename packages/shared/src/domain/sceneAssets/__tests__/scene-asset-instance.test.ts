@@ -20,6 +20,7 @@ function makeInstance(overrides: Partial<SceneAssetInstance> = {}): SceneAssetIn
     rotationDeg: { x: 0, y: 90, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     visible: true,
+    placement: { mode: "free" },
     createdAt: "2026-08-26T00:00:00.000Z",
     updatedAt: "2026-08-26T00:00:00.000Z",
     ...overrides,
@@ -130,6 +131,7 @@ describe("SceneAssetInstance create input", () => {
         positionMm: { x: 100, y: 0, z: 100 },
         rotationDeg: IDENTITY_ROTATION,
         visible: true,
+        placement: { mode: "free" },
         materialOverrides: undefined,
       });
     });

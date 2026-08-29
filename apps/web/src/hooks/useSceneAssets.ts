@@ -74,6 +74,7 @@ export function useSceneAssets(projectId: string) {
           positionMm: updated.positionMm,
           rotationDeg: updated.rotationDeg,
           visible: updated.visible,
+          placement: updated.placement,
           materialOverrides: updated.materialOverrides,
         });
         return updated;

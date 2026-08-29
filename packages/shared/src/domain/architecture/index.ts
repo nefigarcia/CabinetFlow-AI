@@ -43,9 +43,33 @@ export { compileArchitecture, compileWall } from "./wall-compiler";
 export type { ArchitectureIssue, ArchitectureIssueCode } from "./validation";
 export {
   validateArchitecture,
+  validateArchitectureTopology,
   validateOpening,
   validateWall,
 } from "./validation";
+
+export type { FloorPolygon, PolygonWinding } from "./polygon";
+export {
+  endpointGaps,
+  extractFloorPolygon,
+  pointInPolygon,
+  polygonAabb,
+  polygonSelfIntersections,
+  polygonSignedArea2,
+  polygonWinding,
+  segmentsCrossProperly,
+  triangulatePolygonFan,
+} from "./polygon";
+
+export type { DoorSwingGeometry } from "./door-swing";
+export { getDoorSwingGeometry } from "./door-swing";
+
+export type { WallElevationGeometry } from "./wall-elevation";
+export {
+  getWallElevationFrame,
+  getWallElevationGeometry,
+  getWallElevationGeometryById,
+} from "./wall-elevation";
 
 export {
   ROOM_ARCHITECTURE_METADATA_KEY,
@@ -66,3 +90,12 @@ export {
   detectSceneAssetVsCabinet,
   getCabinetAabb,
 } from "./cabinet-bridge";
+
+export type {
+  ResolvedWallAttachedTransform,
+  ResolveWallAttachedInput,
+} from "./wall-attachment-resolver";
+export {
+  resolveWallAttachedSceneAssetTransform,
+  resolveWithWall,
+} from "./wall-attachment-resolver";

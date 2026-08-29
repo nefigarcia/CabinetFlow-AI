@@ -1,9 +1,15 @@
 "use client";
 
+import { useMemo } from "react";
 import { PropertiesPanel } from "@/components/editor/PropertiesPanel";
 import { useEditorStore } from "@/store/editor";
 import type { ValidationReport } from "@/hooks/useCabinets";
-import type { Cabinet } from "@woodcraft/shared";
+import {
+  detectCabinetsVsOpenings,
+  getRoomArchitecture,
+  type Cabinet,
+  type CabinetBridgeIssue,
+} from "@woodcraft/shared";
 
 // The Cabinet inspector wraps the existing PropertiesPanel — same data
 // flow, same optimistic updates, same debounced constraint propagation.
@@ -31,12 +37,34 @@ export function CabinetInspector({
   onValidate,
   onPreview,
 }: Props) {
-  // PropertiesPanel already ships with its own `<aside>` chrome. Rather
-  // than duplicate the entire (~660 line) form logic in a new component,
-  // we render it here inside the Inspector's tab area. Its outer style
-  // matches the panel width the Inspector expects.
+  const rooms = useEditorStore((s) => s.rooms);
+  const allCabinets = useEditorStore((s) => s.cabinets);
+
+  // Cross-source warnings surfaced here (kept OUT of the manufacturing
+  // ValidationReport panel):
+  //   · source="architecture" — this cabinet placed in front of a door /
+  //     window / opening on any wall of its room.
+  // Manufacturing validation stays in PropertiesPanel via ValidationReport.
+  const architectureIssues: CabinetBridgeIssue[] = useMemo(() => {
+    if (!cabinet) return [];
+    const room = rooms.find((r) => r.id === cabinet.roomId);
+    if (!room) return [];
+    const architecture = getRoomArchitecture({
+      metadata: room.metadata ?? null,
+      width: Number(room.width),
+      height: Number(room.height),
+      depth: Number(room.depth),
+    });
+    // Restrict to the currently-selected cabinet so the panel only shows
+    // issues relevant to what the user is looking at.
+    const roomCabinets = allCabinets.filter(
+      (c) => c.roomId === cabinet.roomId && c.id === cabinet.id,
+    );
+    return detectCabinetsVsOpenings({ cabinets: roomCabinets, architecture });
+  }, [cabinet, rooms, allCabinets]);
+
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col min-h-0">
       <PropertiesPanel
         cabinet={cabinet}
         saving={saving}
@@ -47,6 +75,42 @@ export function CabinetInspector({
         onValidate={onValidate}
         onPreview={onPreview}
       />
+      {cabinet && architectureIssues.length > 0 && (
+        <div className="border-t border-surface-200 px-3 py-2">
+          <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
+            Architecture
+            <span className="ml-1 text-gray-600 normal-case">
+              ({architectureIssues.length} warning
+              {architectureIssues.length === 1 ? "" : "s"})
+            </span>
+          </p>
+          <ul className="space-y-1">
+            {architectureIssues.map((issue, idx) => (
+              <li
+                key={idx}
+                className="rounded-md px-2 py-1.5 text-[11px] flex items-start gap-1.5"
+                style={{
+                  background: "rgba(200, 133, 42, 0.08)",
+                  border: "1px solid #6a5828",
+                  color: "#c8852a",
+                }}
+                title={`source=${issue.source} code=${issue.code}`}
+              >
+                <span aria-hidden className="mt-px">⚠</span>
+                <span className="min-w-0">
+                  <span
+                    className="mr-1 uppercase tracking-wider text-[9px]"
+                    style={{ color: "#8a8080" }}
+                  >
+                    [{issue.source}]
+                  </span>
+                  {issue.message}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,19 +2,24 @@
 
 import { useCallback, useMemo, useState } from "react";
 import {
+  deriveDefaultRoomArchitecture,
   getRoomArchitecture,
   getWallLengthMm,
+  ROOM_ARCHITECTURE_SCHEMA_VERSION,
   validateArchitecture,
   withRoomArchitecture,
   type ArchitectureIssue,
   type CeilingVisibility,
+  type DoorOpening,
   type Room,
   type RoomArchitecture,
+  type Vec2Mm,
   type WallDefinition,
   type WallOpening,
 } from "@woodcraft/shared";
 import { apiClient } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
+import { useWorkspaceUiStore } from "../state/use-workspace-ui";
 
 // Architecture Inspector — right-panel content for the Architecture tab.
 //
@@ -44,12 +49,26 @@ const CEILING_VISIBILITY_OPTIONS: readonly {
   { value: "hidden", label: "Always hidden" },
 ];
 
+/** True when the room's metadata does NOT persist a custom architecture
+ *  (i.e. we're rendering the derived rectangular one). Used to gate room-
+ *  dimensions editing (which is only correct in legacy mode) and to show
+ *  the Convert-to-Custom affordance. */
+function isLegacyArchitecture(room: Room): boolean {
+  const meta = room.metadata;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return true;
+  return (meta as Record<string, unknown>).architecture === undefined;
+}
+
 export function ArchitectureInspector({ projectId, room }: Props) {
   const updateRoom = useEditorStore((s) => s.updateRoom);
   const selectWall = useEditorStore((s) => s.selectWall);
   const selectOpening = useEditorStore((s) => s.selectOpening);
   const selectedWallId = useEditorStore((s) => s.selectedWallId);
   const selectedOpeningId = useEditorStore((s) => s.selectedOpeningId);
+
+  const drawWallPhase = useWorkspaceUiStore((s) => s.drawWall.phase);
+  const startDrawWall = useWorkspaceUiStore((s) => s.startDrawWall);
+  const cancelDrawWall = useWorkspaceUiStore((s) => s.cancelDrawWall);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +81,8 @@ export function ArchitectureInspector({ projectId, room }: Props) {
   );
 
   const issues = useMemo(() => validateArchitecture(architecture), [architecture]);
+
+  const legacy = isLegacyArchitecture(room);
 
   const selectedWall = selectedWallId
     ? architecture.walls.find((w) => w.id === selectedWallId)
@@ -108,6 +129,39 @@ export function ArchitectureInspector({ projectId, room }: Props) {
     [architecture, persistArchitecture],
   );
 
+  // Editing room W/H/D in legacy mode PATCHes the Room row directly
+  // (width/height/depth columns), not metadata.architecture — that's the
+  // source of truth for the derived rectangular architecture. The
+  // renderer/inspector pick up the new dims on the next render via
+  // getRoomArchitecture(room).
+  const persistRoomDimension = useCallback(
+    async (field: "width" | "height" | "depth", value: number) => {
+      if (!Number.isFinite(value) || value <= 0) return;
+      setSaving(true);
+      setError(null);
+      try {
+        const updated = await apiClient.patch<Room>(
+          `/projects/${projectId}/rooms/${room.id}`,
+          { [field]: value },
+        );
+        updateRoom(room.id, { [field]: updated[field] ?? value } as Partial<Room>);
+      } catch (e: unknown) {
+        console.error("Save room dimension failed:", e);
+        setError("Couldn't save room dimension. Retry your change.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [projectId, room.id, updateRoom],
+  );
+
+  const convertToCustom = useCallback(() => {
+    // Snapshot the derived rectangular architecture into metadata.
+    // Follow-up wall edits (endpoint/thickness) go through the
+    // architecture path from now on.
+    void persistArchitecture(deriveDefaultRoomArchitecture(room));
+  }, [persistArchitecture, room]);
+
   // ── Header + validation summary ──────────────────────────────────────
 
   return (
@@ -140,6 +194,44 @@ export function ArchitectureInspector({ projectId, room }: Props) {
       )}
 
       <div className="flex-1 min-h-0 overflow-auto p-4 space-y-5">
+        {/* Room dimensions — editable in legacy mode ONLY. Custom archi-
+            tectures edit walls individually via endpoint controls. */}
+        {legacy && (
+          <section>
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
+              Room dimensions
+              <span className="ml-1 text-gray-600 normal-case">(legacy rectangle)</span>
+            </p>
+            <div className="space-y-2">
+              <NumberInput
+                label="Width"
+                unit="mm"
+                value={Number(room.width)}
+                onChange={(v) => void persistRoomDimension("width", v)}
+              />
+              <NumberInput
+                label="Height"
+                unit="mm"
+                value={Number(room.height)}
+                onChange={(v) => void persistRoomDimension("height", v)}
+              />
+              <NumberInput
+                label="Depth"
+                unit="mm"
+                value={Number(room.depth)}
+                onChange={(v) => void persistRoomDimension("depth", v)}
+              />
+            </div>
+            <button
+              onClick={convertToCustom}
+              className="mt-3 w-full text-xs bg-surface-100 hover:bg-surface-200 text-gray-200 py-1.5 rounded-md transition-colors"
+              title="Snapshot the current rectangle into an editable architecture. After conversion, walls become individually editable and the room dimensions section disappears."
+            >
+              Convert to custom architecture
+            </button>
+          </section>
+        )}
+
         {/* Ceiling visibility */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
@@ -189,12 +281,44 @@ export function ArchitectureInspector({ projectId, room }: Props) {
               </li>
             ))}
           </ul>
+          {!legacy && (
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={() =>
+                  mutateArchitecture((arch) => addWallAfterSelected(arch, selectedWallId))
+                }
+                className="flex-1 text-xs bg-surface-100 hover:bg-surface-200 text-gray-200 py-1.5 rounded-md transition-colors"
+                title="Insert a new wall after the selected wall. Endpoints default to a zero-length stub at the previous wall's end — edit its end point to place it."
+              >
+                + Add wall
+              </button>
+              <button
+                onClick={() =>
+                  drawWallPhase === "idle" ? startDrawWall() : cancelDrawWall()
+                }
+                className={[
+                  "flex-1 text-xs py-1.5 rounded-md transition-colors",
+                  drawWallPhase === "idle"
+                    ? "bg-surface-100 hover:bg-surface-200 text-gray-200"
+                    : "bg-brand-500/20 text-brand-400",
+                ].join(" ")}
+                title="Draw a wall by clicking two floor points in the 3D view."
+              >
+                {drawWallPhase === "idle"
+                  ? "Draw wall"
+                  : drawWallPhase === "awaitStart"
+                    ? "Click start · Esc to cancel"
+                    : "Click end · Esc to cancel"}
+              </button>
+            </div>
+          )}
         </section>
 
         {/* Wall details */}
         {selectedWall && (
           <WallDetails
             wall={selectedWall}
+            editable={!legacy}
             onAddDoor={() => addOpening(mutateArchitecture, selectedWall, "door")}
             onAddWindow={() =>
               addOpening(mutateArchitecture, selectedWall, "window")
@@ -202,6 +326,13 @@ export function ArchitectureInspector({ projectId, room }: Props) {
             onAddOpening={() =>
               addOpening(mutateArchitecture, selectedWall, "opening")
             }
+            onChange={(patch) =>
+              mutateArchitecture((arch) => patchWall(arch, selectedWall.id, patch))
+            }
+            onDelete={() => {
+              mutateArchitecture((arch) => deleteWall(arch, selectedWall.id));
+              selectWall(null);
+            }}
             selectedOpeningId={selectedOpeningId}
             onSelectOpening={(openingId) => selectOpening(selectedWall.id, openingId)}
           />
@@ -261,16 +392,22 @@ export function ArchitectureInspectorEmpty() {
 
 function WallDetails({
   wall,
+  editable,
   onAddDoor,
   onAddWindow,
   onAddOpening,
+  onChange,
+  onDelete,
   selectedOpeningId,
   onSelectOpening,
 }: {
   wall: WallDefinition;
+  editable: boolean;
   onAddDoor: () => void;
   onAddWindow: () => void;
   onAddOpening: () => void;
+  onChange: (patch: Partial<WallDefinition>) => void;
+  onDelete: () => void;
   selectedOpeningId: string | null;
   onSelectOpening: (openingId: string) => void;
 }) {
@@ -285,6 +422,53 @@ function WallDetails({
         <ReadonlyStat label="Height" value={`${wall.heightMm} mm`} />
         <ReadonlyStat label="Thickness" value={`${wall.thicknessMm} mm`} />
       </div>
+
+      {editable && (
+        <>
+          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+            Endpoints (mm)
+          </p>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <NumberInput
+              label="Start X"
+              unit="mm"
+              value={wall.startMm.x}
+              onChange={(v) => onChange({ startMm: { ...wall.startMm, x: v } })}
+            />
+            <NumberInput
+              label="Start Z"
+              unit="mm"
+              value={wall.startMm.z}
+              onChange={(v) => onChange({ startMm: { ...wall.startMm, z: v } })}
+            />
+            <NumberInput
+              label="End X"
+              unit="mm"
+              value={wall.endMm.x}
+              onChange={(v) => onChange({ endMm: { ...wall.endMm, x: v } })}
+            />
+            <NumberInput
+              label="End Z"
+              unit="mm"
+              value={wall.endMm.z}
+              onChange={(v) => onChange({ endMm: { ...wall.endMm, z: v } })}
+            />
+            <NumberInput
+              label="Height"
+              unit="mm"
+              value={wall.heightMm}
+              onChange={(v) => onChange({ heightMm: v })}
+            />
+            <NumberInput
+              label="Thickness"
+              unit="mm"
+              value={wall.thicknessMm}
+              onChange={(v) => onChange({ thicknessMm: v })}
+            />
+          </div>
+        </>
+      )}
+
       <div className="flex gap-1.5 mb-3">
         <button
           onClick={onAddDoor}
@@ -330,6 +514,15 @@ function WallDetails({
           ))}
         </ul>
       )}
+      {editable && (
+        <button
+          onClick={onDelete}
+          className="mt-3 w-full text-xs text-red-500 hover:text-red-400 hover:bg-surface-100 py-1.5 rounded-md transition-colors"
+          title="Removes this wall. Endpoint continuity of neighboring walls is not auto-repaired; the topology warnings section will flag any resulting gap."
+        >
+          Delete wall
+        </button>
+      )}
     </section>
   );
 }
@@ -345,6 +538,7 @@ function OpeningDetails({
   onChange: (patch: Partial<WallOpening>) => void;
   onDelete: () => void;
 }) {
+  const isDoor = opening.type === "door";
   const isWindow = opening.type === "window";
   const isGenericWithSill = opening.type === "opening";
 
@@ -388,6 +582,12 @@ function OpeningDetails({
             onChange={(v) => onChange({ sillHeightMm: v } as Partial<WallOpening>)}
           />
         )}
+        {isDoor && (
+          <DoorSwingFields
+            door={opening as DoorOpening}
+            onChange={onChange}
+          />
+        )}
       </div>
       <button
         onClick={onDelete}
@@ -399,6 +599,47 @@ function OpeningDetails({
         Wall {wall.id} · length {Math.round(getWallLengthMm(wall))} mm
       </p>
     </section>
+  );
+}
+
+function DoorSwingFields({
+  door,
+  onChange,
+}: {
+  door: DoorOpening;
+  onChange: (patch: Partial<WallOpening>) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 pt-1">
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Hinge side</label>
+        <select
+          value={door.hingeSide ?? "left"}
+          onChange={(e) =>
+            onChange({ hingeSide: e.target.value as "left" | "right" } as Partial<WallOpening>)
+          }
+          className="w-full bg-surface-100 border border-surface-300 rounded-md px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+        >
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Swing</label>
+        <select
+          value={door.swingDirection ?? "inward"}
+          onChange={(e) =>
+            onChange({
+              swingDirection: e.target.value as "inward" | "outward",
+            } as Partial<WallOpening>)
+          }
+          className="w-full bg-surface-100 border border-surface-300 rounded-md px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+        >
+          <option value="inward">Inward</option>
+          <option value="outward">Outward</option>
+        </select>
+      </div>
+    </div>
   );
 }
 
@@ -536,4 +777,68 @@ function generateOpeningId(type: WallOpening["type"], wall: WallDefinition): str
   let i = 1;
   while (existing.has(`${base}:${i}`)) i++;
   return `${base}:${i}`;
+}
+
+/** In-place-safe wall patch that also touches through a Vec2Mm endpoint
+ *  copy so callers can just spread `{ ...startMm, x: v }`. */
+function patchWall(
+  arch: RoomArchitecture,
+  wallId: string,
+  patch: Partial<WallDefinition>,
+): RoomArchitecture {
+  return {
+    ...arch,
+    walls: arch.walls.map((w) => (w.id === wallId ? { ...w, ...patch } : w)),
+  };
+}
+
+function deleteWall(arch: RoomArchitecture, wallId: string): RoomArchitecture {
+  return {
+    ...arch,
+    walls: arch.walls.filter((w) => w.id !== wallId),
+  };
+}
+
+/** Inserts a new wall AFTER `afterWallId` in the walls array (or appends
+ *  at the end when nothing is selected / the id is unknown). The stub
+ *  starts and ends at the previous wall's end point (so length = 0) —
+ *  the user then edits its `End X` / `End Z` to place it. Topology
+ *  validation flags the zero-length wall until it's moved. */
+function addWallAfterSelected(
+  arch: RoomArchitecture,
+  afterWallId: string | null,
+): RoomArchitecture {
+  const idx = afterWallId
+    ? arch.walls.findIndex((w) => w.id === afterWallId)
+    : arch.walls.length - 1;
+  const anchorEnd: Vec2Mm =
+    idx >= 0 && arch.walls[idx] ? { ...arch.walls[idx]!.endMm } : { x: 0, z: 0 };
+  const heightMm = arch.walls[0]?.heightMm ?? 2400;
+  const thicknessMm = arch.walls[0]?.thicknessMm ?? 50;
+  const newWall: WallDefinition = {
+    id: generateWallId(arch),
+    startMm: anchorEnd,
+    endMm: { ...anchorEnd },
+    heightMm,
+    thicknessMm,
+    openings: [],
+  };
+  const insertAt = idx >= 0 ? idx + 1 : arch.walls.length;
+  const nextWalls = [
+    ...arch.walls.slice(0, insertAt),
+    newWall,
+    ...arch.walls.slice(insertAt),
+  ];
+  return {
+    ...arch,
+    schemaVersion: ROOM_ARCHITECTURE_SCHEMA_VERSION,
+    walls: nextWalls,
+  };
+}
+
+function generateWallId(arch: RoomArchitecture): string {
+  const existing = new Set(arch.walls.map((w) => w.id));
+  let i = 1;
+  while (existing.has(`wall:custom:${i}`)) i++;
+  return `wall:custom:${i}`;
 }

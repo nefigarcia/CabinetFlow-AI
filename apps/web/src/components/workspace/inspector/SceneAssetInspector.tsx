@@ -4,10 +4,17 @@ import { useCallback, useMemo, useState } from "react";
 import {
   DEFAULT_DUPLICATE_OFFSET_MM_X,
   duplicateSceneAssetInstance,
+  getRoomArchitecture,
+  getWallFrame,
+  isWallAttached,
+  resolveWallAttachedSceneAssetTransform,
   SCENE_ASSET_CATEGORY_LABELS,
+  worldToWallLocal,
   type SceneAssetDefinition,
   type SceneAssetInstance,
+  type SceneAssetInstancePlacement,
   type Vec3,
+  type WallDefinition,
 } from "@woodcraft/shared";
 import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
@@ -48,6 +55,22 @@ function sanitizeNumber(raw: number, fallback: number): number {
 export function SceneAssetInspector({ projectId, instance, definition }: Props) {
   const updateInstance = useSceneAssetsStore((s) => s.updateInstance);
   const { create, save, remove, saving } = useSceneAssets(projectId);
+  const room = useEditorStore((s) =>
+    s.rooms.find((r) => r.id === instance.roomId),
+  );
+
+  const architecture = useMemo(
+    () =>
+      room
+        ? getRoomArchitecture({
+            metadata: room.metadata ?? null,
+            width: Number(room.width),
+            height: Number(room.height),
+            depth: Number(room.depth),
+          })
+        : null,
+    [room],
+  );
 
   const [error, setError] = useState<string | null>(null);
 
@@ -85,6 +108,115 @@ export function SceneAssetInspector({ projectId, instance, definition }: Props) 
       debouncedSave(instance.id, { rotationDeg: nextRotationDeg });
     },
     [instance.id, instance.rotationDeg, updateInstance, debouncedSave],
+  );
+
+  // ── Wall attachment helpers ────────────────────────────────────────────
+  //
+  // Attach: chooses the target wall (from the dropdown), projects the
+  // instance's current WORLD position onto that wall's local frame to
+  // pick sensible initial local coords (so the asset doesn't jump), and
+  // persists the placement + refreshed world transform in one PATCH.
+  //
+  // Detach: freezes the current DERIVED world transform into the
+  // persisted position/rotation so the asset stays exactly where it was,
+  // then flips placement back to free.
+
+  const attachToWall = async (wallId: string) => {
+    if (!definition || !architecture) return;
+    const wall = architecture.walls.find((w) => w.id === wallId);
+    if (!wall) return;
+
+    const frame = getWallFrame(wall);
+    // Project current world position onto the wall to seed local coords.
+    // z_local is normalized to 0 (asset back flush with wall face); the
+    // resolver adds halfDepth on render, so the asset visibly hugs the wall.
+    const local = worldToWallLocal(frame, {
+      x: instance.positionMm.x,
+      y: instance.positionMm.y,
+      z: instance.positionMm.z,
+    });
+    const clampedLocalX = Math.max(0, Math.min(frame.lengthMm, local.xMm));
+    const placement: SceneAssetInstancePlacement = {
+      mode: "wall",
+      wall: {
+        wallId: wall.id,
+        localPositionMm: { x: clampedLocalX, y: Math.max(0, local.yMm), z: 0 },
+      },
+    };
+    const resolved = resolveWallAttachedSceneAssetTransform({
+      attachment: placement.wall!,
+      definition,
+      architecture,
+    });
+    // Optimistic — set both placement and the derived world transform so
+    // the on-screen jump is exactly zero (well, near-zero — z snaps to
+    // wall face).
+    const patch = {
+      placement,
+      positionMm: resolved?.positionMm ?? instance.positionMm,
+      rotationDeg: resolved?.rotationDeg ?? instance.rotationDeg,
+    };
+    updateInstance(instance.id, patch);
+    const res = await save(instance.id, patch);
+    if (!res) setError("Couldn't attach to wall — retry.");
+    else setError(null);
+  };
+
+  const detachFromWall = async () => {
+    if (!isWallAttached(instance.placement)) return;
+    // Preserve the visible world transform when converting back to free.
+    // instance.positionMm / rotationDeg already hold the last-derived
+    // transform (renderer + this inspector keep them in sync via the
+    // attach patch above), so a straight placement flip is enough.
+    const patch: {
+      placement: SceneAssetInstancePlacement;
+      positionMm: Vec3;
+      rotationDeg: Vec3;
+    } = {
+      placement: { mode: "free" },
+      positionMm: instance.positionMm,
+      rotationDeg: instance.rotationDeg,
+    };
+    updateInstance(instance.id, patch);
+    const res = await save(instance.id, patch);
+    if (!res) setError("Couldn't detach — retry.");
+    else setError(null);
+  };
+
+  const setWallLocalField = useMemo(
+    () =>
+      (field: "x" | "y" | "z") =>
+      (raw: number) => {
+        if (!isWallAttached(instance.placement) || !architecture || !definition) return;
+        const value = sanitizeNumber(raw, instance.placement.wall.localPositionMm[field]);
+        const nextLocal = { ...instance.placement.wall.localPositionMm, [field]: value };
+        const nextPlacement: SceneAssetInstancePlacement = {
+          mode: "wall",
+          wall: { wallId: instance.placement.wall.wallId, localPositionMm: nextLocal },
+        };
+        const resolved = resolveWallAttachedSceneAssetTransform({
+          attachment: nextPlacement.wall!,
+          definition,
+          architecture,
+        });
+        const patch = {
+          placement: nextPlacement,
+          positionMm: resolved?.positionMm ?? instance.positionMm,
+          rotationDeg: resolved?.rotationDeg ?? instance.rotationDeg,
+        };
+        updateInstance(instance.id, patch);
+        debouncedSave(instance.id, patch);
+      },
+    [
+      instance.id,
+      instance.placement,
+      instance.positionMm,
+      instance.rotationDeg,
+      architecture,
+      definition,
+      updateInstance,
+      debouncedSave,
+    ],
   );
 
   const toggleVisible = async () => {
@@ -190,6 +322,17 @@ export function SceneAssetInspector({ projectId, instance, definition }: Props) 
           </div>
         </section>
 
+        {/* Wall attachment */}
+        {architecture && architecture.walls.length > 0 && (
+          <WallAttachmentSection
+            walls={architecture.walls}
+            placement={instance.placement}
+            onAttach={attachToWall}
+            onDetach={detachFromWall}
+            onLocalChange={setWallLocalField}
+          />
+        )}
+
         {/* Visibility */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">Visibility</p>
@@ -252,6 +395,77 @@ function ReadonlyStat({ label, value }: { label: string; value: string }) {
       <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
       <p className="text-white tabular-nums">{value}</p>
     </div>
+  );
+}
+
+function WallAttachmentSection({
+  walls,
+  placement,
+  onAttach,
+  onDetach,
+  onLocalChange,
+}: {
+  walls: readonly WallDefinition[];
+  placement: SceneAssetInstancePlacement | undefined;
+  onAttach: (wallId: string) => void;
+  onDetach: () => void;
+  onLocalChange: (field: "x" | "y" | "z") => (v: number) => void;
+}) {
+  const attached = isWallAttached(placement);
+  return (
+    <section>
+      <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
+        Wall attachment
+        <span className="ml-1 text-gray-600 normal-case">
+          ({attached ? "wall-anchored" : "free"})
+        </span>
+      </p>
+      <label className="block text-xs text-gray-400 mb-1">Attached wall</label>
+      <select
+        value={attached ? placement.wall.wallId : ""}
+        onChange={(e) => {
+          const id = e.target.value;
+          if (id === "") onDetach();
+          else onAttach(id);
+        }}
+        className="w-full bg-surface-100 border border-surface-300 rounded-md px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+      >
+        <option value="">— none (free) —</option>
+        {walls.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.id}
+          </option>
+        ))}
+      </select>
+      {attached && (
+        <div className="mt-3 space-y-2">
+          <NumberInput
+            label="Offset along wall"
+            unit="mm"
+            value={placement.wall.localPositionMm.x}
+            onChange={onLocalChange("x")}
+          />
+          <NumberInput
+            label="Height above floor"
+            unit="mm"
+            value={placement.wall.localPositionMm.y}
+            onChange={onLocalChange("y")}
+          />
+          <NumberInput
+            label="Surface offset"
+            unit="mm"
+            value={placement.wall.localPositionMm.z}
+            onChange={onLocalChange("z")}
+          />
+          <button
+            onClick={onDetach}
+            className="w-full mt-1 text-xs bg-surface-100 hover:bg-surface-200 text-gray-200 py-1.5 rounded-md transition-colors"
+          >
+            Detach from wall
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

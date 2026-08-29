@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  DEFAULT_INSTANCE_PLACEMENT,
+  sceneAssetInstancePlacementSchema,
+  type SceneAssetInstancePlacement,
+} from "./instance-placement";
 
 // Per-room placement of a Scene Asset. Positions in millimeters, rotations
 // in degrees, scale as dimensionless multipliers.
@@ -42,6 +47,17 @@ export interface SceneAssetInstance {
   visible: boolean;
 
   /**
+   * How the instance is anchored in the room. `{ mode: "free" }` (the
+   * default) means the world transform above is authoritative. `{ mode:
+   * "wall", wall: {...} }` means the wall attachment is authoritative and
+   * the world transform is derived by the resolver on the renderer side.
+   * Optional at the type level for backward compat — legacy rows with no
+   * persisted placement rehydrate through `normalizeInstancePlacement`
+   * as `{ mode: "free" }`.
+   */
+  placement?: SceneAssetInstancePlacement;
+
+  /**
    * Optional map of glTF material slot names (e.g. `"upholstery"`, `"frame"`)
    * to material selection IDs resolved via the existing material system.
    * Absent slots keep the asset's embedded materials.
@@ -61,6 +77,7 @@ export const sceneAssetInstanceSchema: z.ZodType<SceneAssetInstance> = z.object(
   rotationDeg: vec3Schema,
   scale: vec3Schema,
   visible: z.boolean(),
+  placement: sceneAssetInstancePlacementSchema.optional(),
   materialOverrides: z.record(z.string()).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -78,6 +95,7 @@ export interface SceneAssetInstanceCreateInput {
   positionMm: Vec3;
   rotationDeg?: Vec3;
   visible?: boolean;
+  placement?: SceneAssetInstancePlacement;
   materialOverrides?: Record<string, string>;
 }
 
@@ -86,6 +104,7 @@ export const sceneAssetInstanceCreateSchema: z.ZodType<SceneAssetInstanceCreateI
   positionMm: vec3Schema,
   rotationDeg: vec3Schema.optional(),
   visible: z.boolean().optional(),
+  placement: sceneAssetInstancePlacementSchema.optional(),
   materialOverrides: z.record(z.string()).optional(),
 });
 
@@ -96,6 +115,7 @@ export interface SceneAssetInstanceUpdateInput {
   positionMm?: Vec3;
   rotationDeg?: Vec3;
   visible?: boolean;
+  placement?: SceneAssetInstancePlacement;
   materialOverrides?: Record<string, string>;
 }
 
@@ -103,6 +123,7 @@ export const sceneAssetInstanceUpdateSchema: z.ZodType<SceneAssetInstanceUpdateI
   positionMm: vec3Schema.optional(),
   rotationDeg: vec3Schema.optional(),
   visible: z.boolean().optional(),
+  placement: sceneAssetInstancePlacementSchema.optional(),
   materialOverrides: z.record(z.string()).optional(),
 });
 
@@ -118,11 +139,12 @@ export interface NormalizedInstanceCreate {
   positionMm: Vec3;
   rotationDeg: Vec3;
   visible: boolean;
+  placement: SceneAssetInstancePlacement;
   materialOverrides?: Record<string, string>;
 }
 
-/** Fills in identity rotation and `visible=true` for a create input that
- *  omits them. */
+/** Fills in identity rotation, `visible=true`, and `placement.mode="free"`
+ *  for a create input that omits them. */
 export function withInstanceDefaults(
   input: SceneAssetInstanceCreateInput,
 ): NormalizedInstanceCreate {
@@ -131,6 +153,7 @@ export function withInstanceDefaults(
     positionMm: input.positionMm,
     rotationDeg: input.rotationDeg ?? IDENTITY_ROTATION,
     visible: input.visible ?? true,
+    placement: input.placement ?? DEFAULT_INSTANCE_PLACEMENT,
     materialOverrides: input.materialOverrides,
   };
 }

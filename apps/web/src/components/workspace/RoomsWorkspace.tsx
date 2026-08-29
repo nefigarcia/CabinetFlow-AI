@@ -17,6 +17,8 @@ import { WorkspaceSummary } from "./WorkspaceSummary";
 import { SceneAssetDevSeed } from "./dev/SceneAssetDevSeed";
 import { RoomContextPanel } from "./left/RoomContextPanel";
 import { DesignCanvas } from "./canvas/DesignCanvas";
+import { ElevationView } from "./canvas/ElevationView";
+import { FloorPlanView } from "./canvas/FloorPlanView";
 import { CanvasToolbar } from "./canvas/CanvasToolbar";
 import { SceneAssetToolbar } from "./canvas/SceneAssetToolbar";
 import { InspectorPanel } from "./inspector/InspectorPanel";
@@ -69,6 +71,7 @@ export function RoomsWorkspace({ projectId }: Props) {
   const aiCopilotOpen = useWorkspaceUiStore((s) => s.aiCopilotOpen);
   const setAiCopilotOpen = useWorkspaceUiStore((s) => s.setAiCopilotOpen);
   const toggleAiCopilot = useWorkspaceUiStore((s) => s.toggleAiCopilot);
+  const activeView = useWorkspaceUiStore((s) => s.activeView);
 
   // Bootstrap the material selection from localStorage per project.
   const loadMaterialsForProject = useMaterialsStore((s) => s.loadForProject);
@@ -308,10 +311,25 @@ export function RoomsWorkspace({ projectId }: Props) {
             </button>
           )}
 
-          <DesignCanvas projectId={projectId} room={selectedRoom} cabinets={cabinets} />
+          {activeView === "3d" && (
+            <DesignCanvas projectId={projectId} room={selectedRoom} cabinets={cabinets} />
+          )}
+          {activeView === "2d" && selectedRoom && (
+            <FloorPlanView room={selectedRoom} />
+          )}
+          {activeView === "elevation" && selectedRoom && (
+            <ElevationView room={selectedRoom} />
+          )}
 
-          <CanvasToolbar />
-          <SceneAssetToolbar />
+          {/* Toolbars only meaningful in 3D — the 2D + elevation views are
+              read-mostly and don't participate in the transform gizmo /
+              scene-asset canvas actions. */}
+          {activeView === "3d" && (
+            <>
+              <CanvasToolbar />
+              <SceneAssetToolbar />
+            </>
+          )}
 
           {cabinets.length === 0 && !isLoading && !aiCopilotOpen && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
