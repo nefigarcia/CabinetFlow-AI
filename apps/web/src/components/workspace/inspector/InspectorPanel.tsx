@@ -168,6 +168,7 @@ export function InspectorPanel({
         {inspectorTab === "cabinet" &&
           (cabinet ? (
             <CabinetInspector
+              projectId={projectId}
               cabinet={cabinet}
               saving={saving}
               validating={validating}

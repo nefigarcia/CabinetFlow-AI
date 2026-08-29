@@ -6,6 +6,7 @@ import { RoomSelector } from "@/components/editor/RoomSelector";
 import { AddCabinetButton } from "@/components/editor/AddCabinetButton";
 import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import { CatalogPanel } from "./catalog/CatalogPanel";
+import { CabinetLibraryPanel } from "./catalog/CabinetLibraryPanel";
 import { useWorkspaceUiStore } from "../state/use-workspace-ui";
 import type { Cabinet, Room } from "@woodcraft/shared";
 
@@ -100,42 +101,56 @@ export function RoomContextPanel({
         </div>
       )}
 
-      {/* Content — Cabinets tab (default / flag off) */}
+      {/* Content — Cabinets tab (library + placed list) */}
       {activeTab === "cabinets" && (
-        <section className="flex-1 min-h-0 overflow-auto p-3">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <p className="text-xs text-gray-400 uppercase tracking-widest">
-              Cabinets{cabinets.length > 0 ? ` (${cabinets.length})` : ""}
-            </p>
-            <AddCabinetButton projectId={projectId} />
+        <section className="flex-1 min-h-0 flex flex-col">
+          {/* Library — categories + search + quick-add + chain */}
+          <div className="flex-1 min-h-0 flex flex-col" style={{ borderBottom: "1px solid #1E2226" }}>
+            <div className="flex items-center justify-between px-3 pt-3 pb-1">
+              <p className="text-xs text-gray-400 uppercase tracking-widest">
+                Cabinet library
+              </p>
+              {/* Legacy Add-cabinet modal kept as an escape hatch for
+                  free-position cabinets that don't chain to a wall. */}
+              <AddCabinetButton projectId={projectId} />
+            </div>
+            <div className="flex-1 min-h-0">
+              <CabinetLibraryPanel projectId={projectId} />
+            </div>
           </div>
 
-          {cabinets.length === 0 ? (
-            <p className="text-xs text-gray-600 px-1 mt-3">No cabinets yet.</p>
-          ) : (
-            <div className="space-y-0.5">
-              {cabinets.map((cab) => (
-                <button
-                  key={cab.id}
-                  onClick={() => {
-                    selectCabinet(cab.id);
-                    onCabinetSelect?.();
-                  }}
-                  className={[
-                    "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
-                    selectedCabinetId === cab.id
-                      ? "bg-brand-500/20 text-brand-400"
-                      : "text-gray-400 hover:bg-surface-200 hover:text-white",
-                  ].join(" ")}
-                >
-                  <span className="block truncate font-medium">{cab.name}</span>
-                  <span className="block text-[11px] text-gray-600 capitalize mt-0.5">
-                    {cab.type}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Placed cabinets list */}
+          <div className="flex-shrink-0 max-h-56 overflow-auto p-3">
+            <p className="text-xs text-gray-400 uppercase tracking-widest mb-2 px-1">
+              Placed{cabinets.length > 0 ? ` (${cabinets.length})` : ""}
+            </p>
+            {cabinets.length === 0 ? (
+              <p className="text-xs text-gray-600 px-1">No cabinets yet.</p>
+            ) : (
+              <div className="space-y-0.5">
+                {cabinets.map((cab) => (
+                  <button
+                    key={cab.id}
+                    onClick={() => {
+                      selectCabinet(cab.id);
+                      onCabinetSelect?.();
+                    }}
+                    className={[
+                      "w-full text-left px-3 py-1.5 rounded-md text-xs transition-colors",
+                      selectedCabinetId === cab.id
+                        ? "bg-brand-500/20 text-brand-400"
+                        : "text-gray-400 hover:bg-surface-200 hover:text-white",
+                    ].join(" ")}
+                  >
+                    <span className="block truncate font-medium">{cab.name}</span>
+                    <span className="block text-[10px] text-gray-600 capitalize mt-0.5">
+                      {cab.type} · {cab.width}×{cab.height}×{cab.depth} mm
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
       )}
 

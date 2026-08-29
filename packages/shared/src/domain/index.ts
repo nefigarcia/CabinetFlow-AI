@@ -137,3 +137,9 @@ export * from "./sceneAssets";
 // Independent of Cabinet Domain and Scene Assets — defines the space
 // they are placed inside.
 export * from "./architecture";
+
+// Cabinet Design domain — cabinet ↔ wall attachment, runs, chained
+// placement, layout validation. Sits between architecture (walls) and
+// the manufacturing compiler (types/geometry.ts); never touches the
+// compiler and never generates parts.
+export * from "./cabinets";

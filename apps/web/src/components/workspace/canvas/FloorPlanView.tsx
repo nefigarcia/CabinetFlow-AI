@@ -2,11 +2,15 @@
 
 import { useMemo } from "react";
 import {
+  buildCabinetRuns,
   compileArchitecture,
   extractFloorPolygon,
   getDoorSwingGeometry,
   getRoomArchitecture,
+  getWallFrame,
   polygonAabb,
+  resolveCabinetWorldPosition,
+  wallLocalToWorld,
   type Room,
 } from "@woodcraft/shared";
 import { useEditorStore } from "@/store/editor";
@@ -42,6 +46,9 @@ const DIM_COLOR = "#8a8080";
 export function FloorPlanView({ room }: Props) {
   const selectedWallId = useEditorStore((s) => s.selectedWallId);
   const selectWall = useEditorStore((s) => s.selectWall);
+  const selectedCabinetId = useEditorStore((s) => s.selectedCabinetId);
+  const selectCabinet = useEditorStore((s) => s.selectCabinet);
+  const cabinets = useEditorStore((s) => s.cabinets);
 
   const architecture = useMemo(
     () =>
@@ -57,6 +64,61 @@ export function FloorPlanView({ room }: Props) {
   const polygon = useMemo(() => extractFloorPolygon(architecture), [architecture]);
   const bounds = useMemo(() => (polygon ? polygonAabb(polygon) : null), [polygon]);
   const compiled = useMemo(() => compileArchitecture(architecture), [architecture]);
+
+  // Cabinets grouped by wall. For each item, resolve the 4 world-XZ
+  // corners of the footprint so we can render as a polygon regardless
+  // of the wall's angle.
+  const cabinetFootprints = useMemo(() => {
+    const runs = buildCabinetRuns({
+      cabinets: cabinets.filter((c) => c.roomId === room.id),
+      walls: architecture.walls,
+    });
+    const out: {
+      id: string;
+      name: string;
+      isSelected: boolean;
+      cornersWorld: Array<{ x: number; z: number }>;
+    }[] = [];
+    for (const run of runs) {
+      const frame = getWallFrame(run.wall);
+      for (const it of run.items) {
+        const w = Number(it.cabinet.width);
+        const d = Number(it.cabinet.depth);
+        const corners = [
+          wallLocalToWorld(frame, { xMm: it.placement.offsetMm, yMm: 0, zMm: 0 }),
+          wallLocalToWorld(frame, { xMm: it.placement.offsetMm + w, yMm: 0, zMm: 0 }),
+          wallLocalToWorld(frame, { xMm: it.placement.offsetMm + w, yMm: 0, zMm: d }),
+          wallLocalToWorld(frame, { xMm: it.placement.offsetMm, yMm: 0, zMm: d }),
+        ].map((c) => ({ x: c.x, z: c.z }));
+        out.push({
+          id: it.cabinetId,
+          name: it.cabinet.name,
+          isSelected: it.cabinetId === selectedCabinetId,
+          cornersWorld: corners,
+        });
+      }
+    }
+    // Also plot free cabinets by their world posX/Y/Z rectangle.
+    for (const c of cabinets.filter((c) => c.roomId === room.id)) {
+      const wall = architecture.walls.some((w) =>
+        (c.parameters as { wallPlacement?: { wallId: string } })?.wallPlacement?.wallId === w.id,
+      );
+      if (wall) continue;
+      out.push({
+        id: c.id,
+        name: c.name,
+        isSelected: c.id === selectedCabinetId,
+        cornersWorld: [
+          { x: c.posX, z: c.posZ },
+          { x: c.posX + Number(c.width), z: c.posZ },
+          { x: c.posX + Number(c.width), z: c.posZ + Number(c.depth) },
+          { x: c.posX, z: c.posZ + Number(c.depth) },
+        ],
+      });
+    }
+    void resolveCabinetWorldPosition;
+    return out;
+  }, [cabinets, architecture, room.id, selectedCabinetId]);
 
   if (!bounds || !polygon) {
     return (
@@ -166,6 +228,21 @@ export function FloorPlanView({ room }: Props) {
             </g>
           );
         })}
+
+        {/* Cabinet footprints — wall-attached AND free. Click to select. */}
+        {cabinetFootprints.map((fp) => (
+          <polygon
+            key={`cab:${fp.id}`}
+            points={fp.cornersWorld.map((c) => `${c.x},${c.z}`).join(" ")}
+            fill={fp.isSelected ? "rgba(200, 133, 42, 0.20)" : "rgba(100, 110, 130, 0.20)"}
+            stroke={fp.isSelected ? "#c8852a" : "#4a5060"}
+            strokeWidth={fp.isSelected ? 30 : 15}
+            onClick={() => selectCabinet(fp.id)}
+            style={{ cursor: "pointer" }}
+          >
+            <title>{fp.name}</title>
+          </polygon>
+        ))}
 
         {/* Dimension labels — one per wall, at the midpoint. */}
         {architecture.walls.map((wall) => {

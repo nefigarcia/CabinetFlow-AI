@@ -6,7 +6,13 @@ import { useEditorStore } from "@/store/editor";
 import { useMaterialsStore } from "@/store/materials";
 import { useSlotMaterial } from "@/lib/render/materials";
 import type { Cabinet, CabinetSpecInput, MaterialSlot } from "@woodcraft/shared";
-import { compileUnit } from "@woodcraft/shared";
+import {
+  compileUnit,
+  getCabinetWallPlacement,
+  getRoomArchitecture,
+  getWallFrame,
+  mmToMeters,
+} from "@woodcraft/shared";
 
 // Cabinet scene items — CabinetMesh, OpeningMesh, LedStripMesh, and the
 // dispatch CabinetSceneItem — extracted verbatim from the legacy
@@ -289,9 +295,68 @@ function LedStripMesh({ cabinet }: { cabinet: Cabinet }) {
 }
 
 // ── Render dispatch — pick the right mesh based on parameters.role ────────────
+//
+// Wall-attached cabinets get wrapped in an outer group that positions
+// them at the wall start and rotates them so their local +X aligns with
+// the wall tangent (+Z with the inward normal). Inside that outer group,
+// the inner mesh renders at LOCAL origin — the mesh reads its own
+// posX/posY/posZ but we replace those with (offset, elevation, 0) via
+// a shallow cabinet-shaped clone so the mesh code stays untouched.
+//
+// Free (unattached) cabinets render exactly as before: the inner mesh
+// uses its own world posX/posY/posZ and no rotation is applied.
+
 export function CabinetSceneItem({ cabinet }: { cabinet: Cabinet }) {
   const params = (cabinet.parameters ?? {}) as { role?: string };
-  if (params.role === "opening")   return <OpeningMesh   cabinet={cabinet} />;
-  if (params.role === "led_strip") return <LedStripMesh  cabinet={cabinet} />;
-  return <CabinetMesh cabinet={cabinet} />;
+
+  const rooms = useEditorStore((s) => s.rooms);
+  const room = useMemo(() => rooms.find((r) => r.id === cabinet.roomId), [rooms, cabinet.roomId]);
+  const placement = getCabinetWallPlacement(cabinet);
+
+  const wallAlignment = useMemo(() => {
+    if (!placement || !room) return null;
+    const architecture = getRoomArchitecture({
+      metadata: room.metadata ?? null,
+      width: Number(room.width),
+      height: Number(room.height),
+      depth: Number(room.depth),
+    });
+    const wall = architecture.walls.find((w) => w.id === placement.wallId);
+    if (!wall) return null;
+    const frame = getWallFrame(wall);
+    return { wall, angleRad: frame.angleRad };
+  }, [placement, room]);
+
+  // When wall-attached: hand the inner mesh a cabinet whose posX/posY/posZ
+  // read as WALL-LOCAL (offset, elevation, 0). The mesh's own local group
+  // then sits inside our wrapper (wall start + wall rotation) and ends up
+  // in the correct world position without duplicating the wall-local
+  // math inside CabinetMesh.
+  const cabinetForMesh: Cabinet = wallAlignment && placement
+    ? { ...cabinet, posX: placement.offsetMm, posY: placement.baseElevationMm, posZ: 0 }
+    : cabinet;
+
+  const inner =
+    params.role === "opening" ? (
+      <OpeningMesh cabinet={cabinetForMesh} />
+    ) : params.role === "led_strip" ? (
+      <LedStripMesh cabinet={cabinetForMesh} />
+    ) : (
+      <CabinetMesh cabinet={cabinetForMesh} />
+    );
+
+  if (!wallAlignment) return <>{inner}</>;
+
+  return (
+    <group
+      position={[
+        mmToMeters(wallAlignment.wall.startMm.x),
+        0,
+        mmToMeters(wallAlignment.wall.startMm.z),
+      ]}
+      rotation={[0, -wallAlignment.angleRad, 0]}
+    >
+      {inner}
+    </group>
+  );
 }
