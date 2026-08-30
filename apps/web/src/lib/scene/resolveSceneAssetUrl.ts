@@ -1,48 +1,49 @@
-// Central URL resolver for Scene Asset artifacts.
+// Next.js-side wrapper around the shared Scene Asset URL resolver.
 //
-// `assetKey` and `thumbnailKey` are OPAQUE identifiers on the catalog
-// (see Slice 1 DECISION 4). This module is the single place they get
-// resolved to a fetchable URL. Every consumer — the loader, catalog
-// thumbnails, error logs — routes through here so a future swap to a
-// CDN / S3 origin needs only ONE code change.
+// Reads `NEXT_PUBLIC_SCENE_ASSET_BASE_URL` at module load (Next inlines
+// NEXT_PUBLIC_* at build time), falls back to the local Next static
+// path `/assets/scene/` in development. The pure composition logic +
+// key normalization live in @woodcraft/shared/domain/sceneAssets so
+// the resolver is fully covered by the shared unit test suite.
 //
-// For MVP the URLs point at Next.js static assets under
-// `apps/web/public/assets/scene/`. When S3 lands, this file changes to
-// return `${S3_CDN_URL}/scene-assets/...` — no consumer touches raw
-// storage URLs directly.
+// The browser NEVER receives AWS credentials — this file only reads a
+// public env var. The upload CLI (packages/asset-cli) runs server-side
+// and handles the private AWS SDK path.
 
-/** Public base for the local static asset root. */
-const LOCAL_SCENE_ASSET_BASE = "/assets/scene";
+import {
+  LOCAL_SCENE_ASSET_BASE,
+  composeSceneAssetThumbnailUrl,
+  composeSceneAssetUrl,
+} from "@woodcraft/shared";
 
-/** Public base for local thumbnails. Kept separate so we can later
- *  serve thumbnails from a different origin than models. */
-const LOCAL_THUMBNAIL_BASE = "/assets/scene/thumbnails";
+function readConfiguredBase(): string {
+  const raw =
+    (typeof process !== "undefined" &&
+      typeof process.env !== "undefined" &&
+      process.env.NEXT_PUBLIC_SCENE_ASSET_BASE_URL) ||
+    "";
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : LOCAL_SCENE_ASSET_BASE;
+}
 
-/**
- * Turns an opaque `assetKey` into a URL the loader can fetch. Empty /
- * whitespace / non-string input returns null so callers can cleanly
- * fall back to the primitive renderer instead of triggering a 404 GET.
- */
-export function resolveSceneAssetUrl(assetKey: string | undefined | null): string | null {
-  if (typeof assetKey !== "string") return null;
-  const key = assetKey.trim();
-  if (key.length === 0) return null;
-  // A future S3 build path would compose `${S3_CDN_URL}/${key}` here.
-  // The leading slash on `LOCAL_SCENE_ASSET_BASE` keeps this valid at
-  // any Next.js route depth.
-  return `${LOCAL_SCENE_ASSET_BASE}/${stripLeadingSlash(key)}`;
+const CONFIGURED_BASE = readConfiguredBase();
+
+/** Public accessor — makes the resolved base URL testable + debuggable. */
+export function getSceneAssetBaseUrl(): string {
+  return CONFIGURED_BASE;
+}
+
+/** Turns an opaque `assetKey` into a URL the loader can fetch. Returns
+ *  null for missing / invalid / unsafe input. */
+export function resolveSceneAssetUrl(
+  assetKey: string | undefined | null,
+): string | null {
+  return composeSceneAssetUrl(CONFIGURED_BASE, assetKey);
 }
 
 /** Turns an opaque `thumbnailKey` into a URL for the catalog card. */
 export function resolveSceneAssetThumbnailUrl(
   thumbnailKey: string | undefined | null,
 ): string | null {
-  if (typeof thumbnailKey !== "string") return null;
-  const key = thumbnailKey.trim();
-  if (key.length === 0) return null;
-  return `${LOCAL_THUMBNAIL_BASE}/${stripLeadingSlash(key)}`;
-}
-
-function stripLeadingSlash(s: string): string {
-  return s.startsWith("/") ? s.slice(1) : s;
+  return composeSceneAssetThumbnailUrl(CONFIGURED_BASE, thumbnailKey);
 }

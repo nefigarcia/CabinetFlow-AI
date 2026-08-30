@@ -6,6 +6,33 @@
 // cut list, CNC) MUST remain a Cabinet Domain object; do not shortcut it as
 // a Scene Asset.
 
+export {
+  LOCAL_SCENE_ASSET_BASE,
+  LOCAL_THUMBNAIL_SUBDIR,
+  SCENE_ASSET_PREFIX,
+  composeSceneAssetThumbnailUrl,
+  composeSceneAssetUrl,
+  normalizeAssetKey,
+  toS3ObjectKey,
+} from "./asset-url";
+
+export type {
+  AssetUploadManifest,
+  UploadKeyInput,
+} from "./asset-upload-plan";
+export {
+  IMMUTABLE_CACHE_CONTROL,
+  SCENE_ASSET_MODEL_EXT_TO_MIME,
+  SCENE_ASSET_THUMBNAIL_EXT_TO_MIME,
+  SIZE_ADVICE_MB,
+  assetUploadManifestSchema,
+  buildSceneAssetKey,
+  fileSizeAdvice,
+  pickModelContentType,
+  pickThumbnailContentType,
+  validateUploadKeyInput,
+} from "./asset-upload-plan";
+
 export type { SceneAssetCategory } from "./scene-asset-category";
 export {
   SCENE_ASSET_CATEGORIES,
@@ -46,12 +73,15 @@ export type {
   SceneAssetDimensionsMm,
   SceneAssetModelNormalization,
   SceneAssetModelRef,
+  SceneAssetProvenance,
 } from "./scene-asset-definition";
 export {
+  findModeledDefinitionsMissingProvenance,
   hasModel,
   sceneAssetDefinitionSchema,
   sceneAssetDimensionsMmSchema,
   sceneAssetModelRefSchema,
+  sceneAssetProvenanceSchema,
 } from "./scene-asset-definition";
 
 export type {

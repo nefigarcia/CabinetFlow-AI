@@ -21,7 +21,11 @@ import {
 import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
 import { useSceneAssets } from "@/hooks/useSceneAssets";
-import { resolveSceneAssetThumbnailUrl } from "@/lib/scene/resolveSceneAssetUrl";
+import {
+  resolveSceneAssetThumbnailUrl,
+  resolveSceneAssetUrl,
+} from "@/lib/scene/resolveSceneAssetUrl";
+import { preloadSceneAsset } from "@/lib/scene/SceneAssetLoader";
 
 // CatalogPanel — the Scene Asset side of the "Components / Assets" region.
 //
@@ -425,9 +429,20 @@ function AssetCard({
 }) {
   const { widthMm, heightMm, depthMm } = definition.dimensionsMm;
   const categoryLabel = SCENE_ASSET_CATEGORY_LABELS[definition.category];
+  // Preload the GLB only for entries that HAVE a model — primitive-only
+  // entries have nothing to fetch. `preloadSceneAsset` warms the drei
+  // useGLTF cache so the click-to-place is snappy. Called at most once
+  // per hover event; drei's cache dedupes further calls.
+  const preload = () => {
+    if (!definition.model) return;
+    const url = resolveSceneAssetUrl(definition.model.assetKey);
+    if (url) preloadSceneAsset(url);
+  };
   return (
     <button
       onClick={onClick}
+      onMouseEnter={preload}
+      onFocus={preload}
       disabled={disabled}
       className={[
         "w-full text-left rounded-md px-2 py-1.5 flex items-center gap-2 transition-colors",

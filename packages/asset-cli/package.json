@@ -1,0 +1,28 @@
+{
+  "name": "@woodcraft/asset-cli",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "wc-asset-upload": "./src/bin-upload.ts",
+    "wc-asset-check": "./src/bin-check.ts",
+    "wc-asset-validate-catalog": "./src/bin-validate-catalog.ts"
+  },
+  "scripts": {
+    "asset:upload": "ts-node src/bin-upload.ts",
+    "asset:check": "ts-node src/bin-check.ts",
+    "asset:validate-catalog": "ts-node src/bin-validate-catalog.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.670.0",
+    "@woodcraft/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.9"
+  }
+}

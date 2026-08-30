@@ -15,7 +15,10 @@
     "db:migrate:local-only": "npm run --prefix packages/db db:migrate:local-only",
     "db:migrate:prod": "npm run --prefix packages/db db:migrate:prod",
     "db:studio": "npm run --prefix packages/db db:studio",
-    "db:reset:local-only-danger": "npm run --prefix packages/db db:reset:local-only-danger"
+    "db:reset:local-only-danger": "npm run --prefix packages/db db:reset:local-only-danger",
+    "asset:upload": "npm run --prefix packages/asset-cli asset:upload --",
+    "asset:check": "npm run --prefix packages/asset-cli asset:check --",
+    "asset:validate-catalog": "npm run --prefix packages/asset-cli asset:validate-catalog"
   },
   "devDependencies": {
     "prettier": "^3.3.0",

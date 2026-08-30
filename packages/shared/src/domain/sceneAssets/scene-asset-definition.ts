@@ -80,6 +80,39 @@ export const sceneAssetDimensionsMmSchema: z.ZodType<SceneAssetDimensionsMm> = z
   depthMm: z.number().positive(),
 });
 
+/**
+ * Non-rendering provenance/licensing metadata for a Scene Asset. Kept
+ * explicit so the catalog can prove where every model came from and
+ * under what license — critical when shipping third-party GLBs.
+ *
+ * Not persisted in Prisma yet — definitions live in shared code, and
+ * this rides along with the rest of the catalog entry.
+ */
+export interface SceneAssetProvenance {
+  /** Human-readable source name (e.g. "Poly Haven", "Sketchfab", "In-house"). */
+  sourceName: string;
+  /** Direct URL to the source page for auditing. Optional but recommended. */
+  sourceUrl?: string;
+  /** SPDX-style license identifier or plain string. Examples: "CC0-1.0",
+   *  "CC-BY-4.0", "In-house / proprietary". Required — no mystery assets. */
+  license: string;
+  /** Original author / creator when known. */
+  author?: string;
+  /** ISO date the file was downloaded / created in-house. Optional. */
+  acquiredAt?: string;
+  /** Free-form notes (e.g. "modifications: decimated to 25k tris"). */
+  notes?: string;
+}
+
+const sceneAssetProvenanceSchema: z.ZodType<SceneAssetProvenance> = z.object({
+  sourceName: z.string().min(1),
+  sourceUrl: z.string().url().optional(),
+  license: z.string().min(1),
+  author: z.string().optional(),
+  acquiredAt: z.string().optional(),
+  notes: z.string().optional(),
+});
+
 export interface SceneAssetDefinition {
   id: string;
   version: number;
@@ -101,6 +134,14 @@ export interface SceneAssetDefinition {
   placement?: SceneAssetPlacement;
   collision?: SceneAssetCollision;
 
+  /**
+   * Provenance + license metadata. Required whenever `model` is set —
+   * enforced by the runtime helper `assertDefinitionLicensing`. Not
+   * enforced at parse time so primitive-only catalog entries can still
+   * be authored without provenance.
+   */
+  provenance?: SceneAssetProvenance;
+
   metadata?: Record<string, unknown>;
 }
 
@@ -117,8 +158,20 @@ export const sceneAssetDefinitionSchema: z.ZodType<SceneAssetDefinition> = z.obj
   sku: z.string().optional(),
   placement: sceneAssetPlacementSchema.optional(),
   collision: sceneAssetCollisionSchema.optional(),
+  provenance: sceneAssetProvenanceSchema.optional(),
   metadata: z.record(z.unknown()).optional(),
 });
+
+/** Runtime check enforced by upload/build tooling: any definition with a
+ *  registered `model` MUST carry provenance. Returns a list of missing
+ *  ids so a CI script can fail loudly. */
+export function findModeledDefinitionsMissingProvenance(
+  definitions: readonly SceneAssetDefinition[],
+): string[] {
+  return definitions.filter((d) => d.model && !d.provenance).map((d) => d.id);
+}
+
+export { sceneAssetProvenanceSchema };
 
 /** True when this definition has a GLB/glTF model registered. */
 export function hasModel(definition: SceneAssetDefinition): boolean {
