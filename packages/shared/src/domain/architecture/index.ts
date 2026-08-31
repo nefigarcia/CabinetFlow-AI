@@ -99,3 +99,10 @@ export {
   resolveWallAttachedSceneAssetTransform,
   resolveWithWall,
 } from "./wall-attachment-resolver";
+
+export type { WallRenderTransform } from "./wall-render-transform";
+export {
+  getExteriorFaceWorldPointMm,
+  getInteriorFaceWorldPointMm,
+  getWallRenderTransform,
+} from "./wall-render-transform";

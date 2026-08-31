@@ -9,6 +9,7 @@ import {
   extractFloorPolygon,
   getDoorSwingGeometry,
   getRoomArchitecture,
+  getWallRenderTransform,
   mmToMeters,
   polygonAabb,
   wallLocalToWorld,
@@ -209,28 +210,42 @@ function PolygonSlab({
   material: THREE.Material;
   faceUp: boolean;
 }) {
-  // ShapeGeometry lives in the XY plane by default. We build a Shape
-  // from the wall polygon (converted to meters), then rotate the mesh
-  // -90° around X so the shape lies flat on world XZ. faceUp=false
-  // (ceiling) flips the normal by rotating +90° instead so the material
-  // faces DOWN into the room.
+  // Geometry contract:
+  //   · Input polygon vertices are in world XZ (mm), CCW.
+  //   · ShapeGeometry lives in the shape's local XY plane at Z = 0.
+  //   · We map polygon (X, Z) → shape (X, Z-as-y) so that a subsequent
+  //     rotation of +π/2 around world +X sends local (X, Y, 0) →
+  //     world (X, 0, Y) — i.e. polygon Z lands on world Z verbatim.
+  //     (The earlier code used -π/2 which sent local Y → world -Y,
+  //     mirroring the whole polygon across Z=0 — that was the bug.)
+  //
+  // Normal direction:
+  //   · Rotation +π/2 sends the shape's default +Z normal to world -Y
+  //     (facing DOWN). Correct for CEILING.
+  //   · For FLOOR we need +Y (facing UP). We flip the normal by
+  //     REVERSING the polygon vertex order before feeding it to Shape:
+  //     earcut then emits triangles with reversed winding whose
+  //     computed normal is -Z (local) → +Y (world) after rotation.
+  //
+  // Both effects are pure — no scale.negative tricks that would silently
+  // corrupt shadow / raycast behavior.
   const shape = useMemo(() => {
     const s = new THREE.Shape();
-    const pts = polygon.pointsMm;
-    if (pts.length < 3) return s;
+    const raw = polygon.pointsMm;
+    if (raw.length < 3) return s;
+    const pts = faceUp ? [...raw].reverse() : raw;
     s.moveTo(mmToMeters(pts[0]!.x), mmToMeters(pts[0]!.z));
     for (let i = 1; i < pts.length; i++) {
       s.lineTo(mmToMeters(pts[i]!.x), mmToMeters(pts[i]!.z));
     }
     s.closePath();
     return s;
-  }, [polygon]);
+  }, [polygon, faceUp]);
 
-  const rotX = faceUp ? -Math.PI / 2 : Math.PI / 2;
   return (
     <mesh
       position={[0, yM, 0]}
-      rotation={[rotX, 0, 0]}
+      rotation={[Math.PI / 2, 0, 0]}
       receiveShadow
       material={material}
     >
@@ -246,36 +261,30 @@ function PolygonSlab({
  * per wall (safe because each wall is a distinct component instance) —
  * the material's face size is set to the wall's total length × height so
  * texture tiling matches the wall's real dimensions.
+ *
+ * Wall placement contract (see shared/wall-render-transform.ts):
+ *   The architecture design line IS the interior wall face. This group
+ *   sits at the OUTER-corner start (design line + outward normal × FULL
+ *   thickness) so that a segment mesh authored with local Z spanning
+ *   0..thickness lands at world Z spanning [-T .. 0] — i.e. the wall
+ *   body extends OUTWARD only. Cabinets + wall-attached scene assets
+ *   placed at wall-local Z = 0 then sit flush with the interior face.
  */
 function WallGroup({ wall }: { wall: WallDefinition }) {
   const selection = useMaterialsStore((s) => s.selection);
 
   const compiled = useMemo(() => compileWall(wall), [wall]);
-  const wallLengthMm = compiled.frame.lengthMm;
+  const transform = useMemo(() => getWallRenderTransform(wall), [wall]);
   const thicknessM = mmToMeters(wall.thicknessMm);
 
   const wallMat = useSlotMaterial(selection, null, "wall", {
-    face: { widthMm: wallLengthMm, heightMm: wall.heightMm },
+    face: { widthMm: transform.lengthMm, heightMm: wall.heightMm },
   });
 
-  // Offset the wall outward by half its thickness so the inner face lies
-  // on the architecture line — preserves the legacy interior footprint.
-  const outwardNx = -compiled.frame.normal.x;
-  const outwardNz = -compiled.frame.normal.z;
-  const halfThicknessMm = wall.thicknessMm / 2;
-  const offsetStartXM = mmToMeters(
-    wall.startMm.x + outwardNx * halfThicknessMm,
-  );
-  const offsetStartZM = mmToMeters(
-    wall.startMm.z + outwardNz * halfThicknessMm,
-  );
-
-  // Group is rotated so its local X aligns with the wall's tangent.
-  // Local Y is world Y. Segments are placed at their wall-local center.
   return (
     <group
-      position={[offsetStartXM, 0, offsetStartZM]}
-      rotation={[0, -compiled.frame.angleRad, 0]}
+      position={[mmToMeters(transform.originMm.x), 0, mmToMeters(transform.originMm.z)]}
+      rotation={[0, transform.rotationY, 0]}
     >
       {compiled.segments.map((seg, idx) => (
         <SegmentMesh
@@ -375,27 +384,21 @@ function OpeningOutline({
   wall: WallDefinition;
   opening: CompiledOpening;
 }) {
-  const frame = useMemo(() => compileWall(wall).frame, [wall]);
+  const transform = useMemo(() => getWallRenderTransform(wall), [wall]);
   const widthM = mmToMeters(opening.xEndMm - opening.xStartMm);
   const heightM = mmToMeters(opening.yTopMm - opening.yBottomMm);
   const centerXM = mmToMeters((opening.xStartMm + opening.xEndMm) / 2);
   const centerYM = mmToMeters((opening.yBottomMm + opening.yTopMm) / 2);
-
-  const outwardNx = -frame.normal.x;
-  const outwardNz = -frame.normal.z;
-  const halfThicknessMm = wall.thicknessMm / 2;
-  const offsetStartXM = mmToMeters(
-    wall.startMm.x + outwardNx * halfThicknessMm,
-  );
-  const offsetStartZM = mmToMeters(
-    wall.startMm.z + outwardNz * halfThicknessMm,
-  );
   const thicknessM = mmToMeters(wall.thicknessMm);
 
+  // Inside the group, the wall body spans local Z = 0..thickness (with
+  // the group anchored at the exterior corner). The interior face is at
+  // local Z = thickness. Overlay sits at thickness + epsilon so it hugs
+  // the interior face and stays visible from inside the room.
   return (
     <group
-      position={[offsetStartXM, 0, offsetStartZM]}
-      rotation={[0, -frame.angleRad, 0]}
+      position={[mmToMeters(transform.originMm.x), 0, mmToMeters(transform.originMm.z)]}
+      rotation={[0, transform.rotationY, 0]}
     >
       <mesh position={[centerXM, centerYM, thicknessM + 0.001]}>
         <planeGeometry args={[widthM, heightM]} />
@@ -413,7 +416,10 @@ function OpeningOutline({
 // ── Window frame / mullion overlay ──────────────────────────────────────
 
 const WINDOW_FRAME_COLOR = "#6ab5c8";
-const WINDOW_FRAME_Z_OFFSET_MM = 5; // sit just outside the wall face
+// Small positive wall-local Z = a hair INTO the room past the interior
+// face — avoids z-fighting with the wall interior. Under the domain
+// convention wall-local Z = 0 IS the interior face (see wall-render-transform.ts).
+const WINDOW_FRAME_Z_OFFSET_MM = 5;
 
 function WindowFrameOverlay({
   wall,
@@ -425,19 +431,17 @@ function WindowFrameOverlay({
   const compiled = useMemo(() => compileWall(wall), [wall]);
   const frame = compiled.frame;
 
-  // Frame rectangle (wall-local X, Y) at z = wall thickness + tiny epsilon
-  // so it hugs the outer face of the wall.
   const xStart = Math.max(0, win.offsetMm);
   const xEnd = Math.min(frame.lengthMm, win.offsetMm + win.widthMm);
   const yBot = Math.max(0, win.sillHeightMm);
   const yTop = Math.min(wall.heightMm, win.sillHeightMm + win.heightMm);
 
   const cornersLocal = [
-    { xMm: xStart, yMm: yBot, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
-    { xMm: xEnd, yMm: yBot, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
-    { xMm: xEnd, yMm: yTop, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
-    { xMm: xStart, yMm: yTop, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
-    { xMm: xStart, yMm: yBot, zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xStart, yMm: yBot, zMm: WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xEnd, yMm: yBot, zMm: WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xEnd, yMm: yTop, zMm: WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xStart, yMm: yTop, zMm: WINDOW_FRAME_Z_OFFSET_MM },
+    { xMm: xStart, yMm: yBot, zMm: WINDOW_FRAME_Z_OFFSET_MM },
   ];
   const framePts = useMemo(
     () =>
@@ -456,18 +460,18 @@ function WindowFrameOverlay({
     const a = wallLocalToWorld(frame, {
       xMm: xMid,
       yMm: yBot,
-      zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM,
+      zMm: WINDOW_FRAME_Z_OFFSET_MM,
     });
     const b = wallLocalToWorld(frame, {
       xMm: xMid,
       yMm: yTop,
-      zMm: wall.thicknessMm / 2 + WINDOW_FRAME_Z_OFFSET_MM,
+      zMm: WINDOW_FRAME_Z_OFFSET_MM,
     });
     return [
       new THREE.Vector3(mmToMeters(a.x), mmToMeters(a.y), mmToMeters(a.z)),
       new THREE.Vector3(mmToMeters(b.x), mmToMeters(b.y), mmToMeters(b.z)),
     ];
-  }, [showMullion, frame, xMid, yBot, yTop, wall.thicknessMm]);
+  }, [showMullion, frame, xMid, yBot, yTop]);
 
   return (
     <group>
