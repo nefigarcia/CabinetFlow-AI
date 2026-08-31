@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  sceneAssetInstanceCreateSchema,
+  sceneAssetInstanceUpdateSchema,
+} from "@woodcraft/shared";
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -256,6 +260,15 @@ export const inviteTeamMemberSchema = z.object({
 export const updateTeamMemberSchema = z.object({
   role: z.enum(["admin", "designer", "viewer"]),
 });
+
+// ─── Scene Asset Instances ────────────────────────────────────────────────────
+// Reuse the shared Zod schemas — they define the canonical create/update
+// shape (assetDefinitionId, positionMm, rotationDeg, visible?, materialOverrides?)
+// with tenancy (orgId/roomId) and scale intentionally omitted. Server derives
+// tenancy from route + auth context; scale stays server-default identity.
+
+export const createSceneAssetInstanceSchema = sceneAssetInstanceCreateSchema;
+export const updateSceneAssetInstanceSchema = sceneAssetInstanceUpdateSchema;
 
 // ─── Inferred types ───────────────────────────────────────────────────────────
 

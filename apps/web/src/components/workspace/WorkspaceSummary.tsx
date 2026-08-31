@@ -1,7 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import { useEditorStore } from "@/store/editor";
-import type { Room } from "@woodcraft/shared";
+import { useSceneAssetsStore } from "@/store/sceneAssets";
+import {
+  getRoomArchitecture,
+  summarizeDesignReadiness,
+  type Room,
+} from "@woodcraft/shared";
 
 // Bottom information strip. STEP 2 ships ONLY the RoomSummaryCard — the
 // other three (Validation, Manufacturing Readiness, Pricing) come online
@@ -70,6 +76,30 @@ function DisabledCard({ label, note }: { label: string; note: string }) {
 
 export function WorkspaceSummary({ room }: Props) {
   const cabinets = useEditorStore((s) => s.cabinets);
+  const sceneInstances = useSceneAssetsStore((s) => s.instances);
+  const sceneDefs = useSceneAssetsStore((s) => s.definitions);
+
+  const readiness = useMemo(() => {
+    if (!room) return null;
+    const architecture = getRoomArchitecture({
+      metadata: room.metadata ?? null,
+      width: Number(room.width),
+      height: Number(room.height),
+      depth: Number(room.depth),
+    });
+    const scene = sceneInstances
+      .filter((i) => i.roomId === room.id)
+      .map((instance) => {
+        const definition = sceneDefs.find((d) => d.id === instance.assetDefinitionId);
+        return definition ? { instance, definition } : null;
+      })
+      .filter((v): v is { instance: (typeof sceneInstances)[number]; definition: (typeof sceneDefs)[number] } => v !== null);
+    return summarizeDesignReadiness({
+      cabinets: cabinets.filter((c) => c.roomId === room.id),
+      architecture,
+      sceneAssets: scene,
+    });
+  }, [room, cabinets, sceneInstances, sceneDefs]);
 
   if (!room) {
     return (
@@ -86,7 +116,18 @@ export function WorkspaceSummary({ room }: Props) {
   const d = Number(room.depth);
   const h = Number(room.height);
   const floorAreaM2 = (w / 1000) * (d / 1000);
-  const cabinetCount = cabinets.length;
+  const cabinetCount = cabinets.filter((c) => c.roomId === room.id).length;
+
+  const layoutOk =
+    readiness &&
+    readiness.layout.overlaps === 0 &&
+    readiness.layout.unassignedGaps === 0 &&
+    readiness.layout.openingConflicts === 0 &&
+    !readiness.layout.exceedsWall;
+  const mfgOk =
+    readiness &&
+    readiness.manufacturing.cabinetsMissingParts.length === 0 &&
+    readiness.manufacturing.cabinetsMissingMaterial.length === 0;
 
   return (
     <footer
@@ -105,16 +146,48 @@ export function WorkspaceSummary({ room }: Props) {
       <SummaryCard
         label="Cabinets"
         primary={String(cabinetCount)}
-        secondary={cabinetCount === 1 ? "in this room" : "in this room"}
+        secondary={`${readiness?.layout.runs ?? 0} wall run${(readiness?.layout.runs ?? 0) === 1 ? "" : "s"}`}
       />
-      <DisabledCard
-        label="Validation"
-        note="Deterministic checks in a later milestone"
-      />
-      <DisabledCard
-        label="Readiness"
-        note="Manufacturing readiness in a later milestone"
-      />
+      {readiness ? (
+        <SummaryCard
+          label="Layout"
+          primary={layoutOk ? "✓ clean" : layoutSummary(readiness)}
+          secondary={`Remaining ${readiness.layout.totalRemainingMm.toFixed(0)} mm`}
+          accent={layoutOk ? "#7fbf7f" : "#c8852a"}
+        />
+      ) : (
+        <DisabledCard label="Layout" note="Layout summary loads with the room" />
+      )}
+      {readiness ? (
+        <SummaryCard
+          label="Manufacturing"
+          primary={mfgOk ? "✓ ready" : mfgSummary(readiness)}
+          secondary={
+            mfgOk
+              ? "Parts + materials resolved"
+              : `${readiness.manufacturing.cabinetsMissingParts.length} no parts · ${readiness.manufacturing.cabinetsMissingMaterial.length} no material`
+          }
+          accent={mfgOk ? "#7fbf7f" : "#c8852a"}
+        />
+      ) : (
+        <DisabledCard label="Manufacturing" note="Manufacturing summary loads with the room" />
+      )}
     </footer>
   );
+}
+
+function layoutSummary(r: NonNullable<ReturnType<typeof summarizeDesignReadiness>>): string {
+  const parts: string[] = [];
+  if (r.layout.overlaps > 0) parts.push(`${r.layout.overlaps} overlap${r.layout.overlaps === 1 ? "" : "s"}`);
+  if (r.layout.unassignedGaps > 0) parts.push(`${r.layout.unassignedGaps} gap${r.layout.unassignedGaps === 1 ? "" : "s"}`);
+  if (r.layout.openingConflicts > 0) parts.push(`${r.layout.openingConflicts} opening conflict${r.layout.openingConflicts === 1 ? "" : "s"}`);
+  if (r.layout.exceedsWall) parts.push("wall overflow");
+  return parts.length === 0 ? "⚠ issues" : `⚠ ${parts.join(" · ")}`;
+}
+
+function mfgSummary(r: NonNullable<ReturnType<typeof summarizeDesignReadiness>>): string {
+  const missingParts = r.manufacturing.cabinetsMissingParts.length;
+  const missingMat = r.manufacturing.cabinetsMissingMaterial.length;
+  if (missingParts === 0 && missingMat === 0) return "✓ ready";
+  return `⚠ ${missingParts + missingMat} pending`;
 }

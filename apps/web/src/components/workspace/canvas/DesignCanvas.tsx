@@ -9,6 +9,9 @@ import { useEditorStore } from "@/store/editor";
 import { useWorkspaceUiStore } from "../state/use-workspace-ui";
 import { RoomShell } from "@/components/editor/RoomShell";
 import { CabinetSceneItem } from "./scene/CabinetSceneItem";
+import { DrawWallTool } from "./scene/DrawWallTool";
+import { SceneAssetLayer } from "./scene/SceneAssetLayer";
+import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import type { Cabinet, Room } from "@woodcraft/shared";
 
 // The design canvas hosts the R3F scene: room shell, cabinet meshes,
@@ -16,6 +19,7 @@ import type { Cabinet, Room } from "@woodcraft/shared";
 // entirely outside this component — everything here is scene concerns.
 
 interface Props {
+  projectId: string;
   room: Room | undefined;
   cabinets: Cabinet[];
 }
@@ -45,7 +49,7 @@ function FitViewOnRequest() {
   return <OrbitControls ref={controlsRef} makeDefault />;
 }
 
-export function DesignCanvas({ room, cabinets }: Props) {
+export function DesignCanvas({ projectId, room, cabinets }: Props) {
   const selectCabinet = useEditorStore((s) => s.selectCabinet);
 
   return (
@@ -78,6 +82,14 @@ export function DesignCanvas({ room, cabinets }: Props) {
       {cabinets.map((cab) => (
         <CabinetSceneItem key={cab.id} cabinet={cab} />
       ))}
+      {/* Scene Assets — visualization/reference layer. Gated by the
+          NEXT_PUBLIC_FEATURE_SCENE_ASSETS flag so production builds with
+          the flag OFF tree-shake the layer entirely. Cabinet rendering
+          above is unchanged. */}
+      {SCENE_ASSETS_ENABLED && <SceneAssetLayer projectId={projectId} />}
+      {/* Draw-wall canvas tool — mounted always but self-gates on the
+          architecture edit mode + draw phase. */}
+      <DrawWallTool projectId={projectId} room={room} />
       <FitViewOnRequest />
       <Environment preset="warehouse" background={false} />
     </Canvas>

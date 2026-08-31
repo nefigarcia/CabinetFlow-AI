@@ -18,4 +18,5 @@ export type {
   ProductionRun,
   Quote,
   InstallerFeedback,
+  SceneAssetInstance,
 } from "@prisma/client";

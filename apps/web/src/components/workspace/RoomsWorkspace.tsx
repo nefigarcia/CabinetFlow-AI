@@ -1,18 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sceneAssetSelectionAfterRoomChange } from "@woodcraft/shared";
 import { useEditorStore } from "@/store/editor";
 import { useMaterialsStore } from "@/store/materials";
+import { useSceneAssetsStore } from "@/store/sceneAssets";
 import { useProject, useRoomCabinets } from "@/hooks/useProject";
 import { useCabinets } from "@/hooks/useCabinets";
 import { useCollab } from "@/hooks/useCollab";
+import { useRoomSceneAssets } from "@/hooks/useRoomSceneAssets";
+import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import { CabinetPreviewModal } from "@/components/editor/CabinetPreviewModal";
 import AICopilotPanel, { type AICabinetSpec } from "@/components/editor/AICopilotPanel";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 import { WorkspaceSummary } from "./WorkspaceSummary";
+import { SceneAssetDevSeed } from "./dev/SceneAssetDevSeed";
 import { RoomContextPanel } from "./left/RoomContextPanel";
 import { DesignCanvas } from "./canvas/DesignCanvas";
+import { ElevationView } from "./canvas/ElevationView";
+import { FloorPlanView } from "./canvas/FloorPlanView";
 import { CanvasToolbar } from "./canvas/CanvasToolbar";
+import { SceneAssetToolbar } from "./canvas/SceneAssetToolbar";
 import { InspectorPanel } from "./inspector/InspectorPanel";
 import { useWorkspaceUiStore } from "./state/use-workspace-ui";
 
@@ -41,15 +49,29 @@ interface Props {
 
 export function RoomsWorkspace({ projectId }: Props) {
   const { project, loading: projectLoading } = useProject(projectId);
-  const { selectedRoomId, cabinets, selectedCabinetId, selectCabinet } = useEditorStore();
+  const {
+    selectedRoomId,
+    cabinets,
+    selectedCabinetId,
+    selectCabinet,
+    selectedSceneAssetId,
+    selectSceneAsset,
+  } = useEditorStore();
   const { loading: roomLoading } = useRoomCabinets(projectId, selectedRoomId);
   const { create, save, remove, validate, saving, validating, validationReports } =
     useCabinets(projectId);
   useCollab(projectId);
 
+  // Scene Asset per-room hydration — gated by the feature flag so
+  // production with the flag off makes zero extra requests. When enabled,
+  // switching rooms replaces the store with the new room's instances
+  // (Option A hydration, matching the cabinet pattern).
+  useRoomSceneAssets(projectId, SCENE_ASSETS_ENABLED ? selectedRoomId : null);
+
   const aiCopilotOpen = useWorkspaceUiStore((s) => s.aiCopilotOpen);
   const setAiCopilotOpen = useWorkspaceUiStore((s) => s.setAiCopilotOpen);
   const toggleAiCopilot = useWorkspaceUiStore((s) => s.toggleAiCopilot);
+  const activeView = useWorkspaceUiStore((s) => s.activeView);
 
   // Bootstrap the material selection from localStorage per project.
   const loadMaterialsForProject = useMaterialsStore((s) => s.loadForProject);
@@ -75,6 +97,30 @@ export function RoomsWorkspace({ projectId }: Props) {
   useEffect(() => {
     if (!selectedCabinetId) setRightOpen(false);
   }, [selectedCabinetId]);
+
+  // When the current room changes, clear any Scene Asset selection that
+  // belongs to a different room. Uses the shared pure decision helper so
+  // the rule is tested independently of React. The scene-asset store isn't
+  // subscribed to here — it's read imperatively via `getState()` inside
+  // the effect so we don't trigger extra rerenders on unrelated store
+  // updates.
+  useEffect(() => {
+    if (!selectedSceneAssetId) return;
+    const instance = useSceneAssetsStore
+      .getState()
+      .instances.find((i) => i.id === selectedSceneAssetId);
+    const decision = sceneAssetSelectionAfterRoomChange(
+      instance?.roomId,
+      selectedRoomId,
+    );
+    if (decision === "clear") selectSceneAsset(null);
+  }, [selectedRoomId, selectedSceneAssetId, selectSceneAsset]);
+
+  // Auto-open the properties sheet on mobile when a scene asset is
+  // selected (same UX as cabinet selection).
+  useEffect(() => {
+    if (selectedSceneAssetId) setRightOpen(true);
+  }, [selectedSceneAssetId]);
 
   // Set the AI Copilot's initial state on room entry — matches previous
   // behavior. Only fires on true→false roomLoading transition so it
@@ -265,9 +311,25 @@ export function RoomsWorkspace({ projectId }: Props) {
             </button>
           )}
 
-          <DesignCanvas room={selectedRoom} cabinets={cabinets} />
+          {activeView === "3d" && (
+            <DesignCanvas projectId={projectId} room={selectedRoom} cabinets={cabinets} />
+          )}
+          {activeView === "2d" && selectedRoom && (
+            <FloorPlanView room={selectedRoom} />
+          )}
+          {activeView === "elevation" && selectedRoom && (
+            <ElevationView room={selectedRoom} />
+          )}
 
-          <CanvasToolbar />
+          {/* Toolbars only meaningful in 3D — the 2D + elevation views are
+              read-mostly and don't participate in the transform gizmo /
+              scene-asset canvas actions. */}
+          {activeView === "3d" && (
+            <>
+              <CanvasToolbar />
+              <SceneAssetToolbar />
+            </>
+          )}
 
           {cabinets.length === 0 && !isLoading && !aiCopilotOpen && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -299,6 +361,7 @@ export function RoomsWorkspace({ projectId }: Props) {
             ].join(" ")}
           >
             <InspectorPanel
+              projectId={projectId}
               saving={saving}
               validating={validating}
               validationReports={validationReports}
@@ -327,6 +390,11 @@ export function RoomsWorkspace({ projectId }: Props) {
             />
           ) : null;
         })()}
+
+      {/* Dev-only Scene Asset seed control. Self-gated behind
+          NODE_ENV !== "production" AND the feature flag; renders nothing
+          in a shipped build. Kept out of the normal product hierarchy. */}
+      <SceneAssetDevSeed projectId={projectId} />
     </div>
   );
 }
