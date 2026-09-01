@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { validateAndHashFile } from "../src/file-validation";
+import {
+  validateAndHashBuffer,
+  validateAndHashFile,
+} from "../src/file-validation";
 
 describe("validateAndHashFile", () => {
   let tmp: string;
@@ -69,5 +72,63 @@ describe("validateAndHashFile", () => {
         maxBytes: 10,
       }),
     ).rejects.toThrow(/exceeds hard cap/);
+  });
+});
+
+describe("validateAndHashBuffer — server-side (multipart) twin", () => {
+  const glbBody = Buffer.concat([Buffer.from("glTF", "ascii"), Buffer.alloc(16, 0)]);
+
+  it("returns size + sha256 for a valid GLB buffer", () => {
+    const v = validateAndHashBuffer("model.glb", glbBody, {
+      allowedExtensions: [".glb", ".gltf"],
+      requireGlbHeader: true,
+    });
+    expect(v.basename).toBe("model.glb");
+    expect(v.sizeBytes).toBe(glbBody.length);
+    expect(v.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("uses ONLY the basename for extension check (defends against path-like filenames)", () => {
+    // A malicious multipart client could send a filename like
+    // `../../etc/passwd`. We must only look at the basename.
+    const v = validateAndHashBuffer("some/nested/path/model.glb", glbBody, {
+      allowedExtensions: [".glb"],
+      requireGlbHeader: true,
+    });
+    expect(v.basename).toBe("model.glb");
+  });
+
+  it("rejects an unsupported extension", () => {
+    expect(() =>
+      validateAndHashBuffer("bad.obj", Buffer.from("junk"), {
+        allowedExtensions: [".glb"],
+      }),
+    ).toThrow(/Unsupported extension/);
+  });
+
+  it("rejects an empty buffer", () => {
+    expect(() =>
+      validateAndHashBuffer("empty.glb", Buffer.alloc(0), {
+        allowedExtensions: [".glb"],
+      }),
+    ).toThrow(/empty/);
+  });
+
+  it("rejects a buffer over maxBytes", () => {
+    expect(() =>
+      validateAndHashBuffer("big.glb", glbBody, {
+        allowedExtensions: [".glb"],
+        maxBytes: 4,
+      }),
+    ).toThrow(/exceeds hard cap/);
+  });
+
+  it("rejects a .glb without the magic header when required", () => {
+    expect(() =>
+      validateAndHashBuffer("fake.glb", Buffer.from("nope"), {
+        allowedExtensions: [".glb"],
+        requireGlbHeader: true,
+      }),
+    ).toThrow(/GLB magic header/);
   });
 });

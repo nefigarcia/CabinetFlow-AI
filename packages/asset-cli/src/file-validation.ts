@@ -94,3 +94,48 @@ function extname(filename: string): string {
   if (idx < 0) return "";
   return filename.slice(idx).toLowerCase();
 }
+
+/**
+ * Buffer-based twin of `validateAndHashFile` — used by the API upload
+ * route (multipart data arrives in memory, not on disk). The server
+ * runs the SAME validation rules as the CLI so upload behaviour is
+ * identical across surfaces. Reuses `extname` + the GLB magic check.
+ *
+ * `filename` is the untrusted client-supplied basename; we ONLY use it
+ * for extension + MIME detection — never for filesystem paths. The
+ * upload service composes its own canonical S3 key from validated
+ * category/id/version.
+ */
+export function validateAndHashBuffer(
+  filename: string,
+  body: Buffer,
+  options: FileValidationOptions,
+): ValidatedFile {
+  const bn = basename(filename.replace(/\\/g, "/"));
+  const ext = extname(bn);
+  if (!options.allowedExtensions.includes(ext)) {
+    throw new Error(
+      `Unsupported extension "${ext}" for "${bn}". Allowed: ${options.allowedExtensions.join(", ")}`,
+    );
+  }
+  if (body.length === 0) {
+    throw new Error(`File "${bn}" is empty.`);
+  }
+  if (options.maxBytes !== undefined && body.length > options.maxBytes) {
+    throw new Error(
+      `File "${bn}" is ${body.length} bytes; exceeds hard cap of ${options.maxBytes} bytes.`,
+    );
+  }
+  if (options.requireGlbHeader) {
+    if (body.length < 4 || !body.subarray(0, 4).equals(GLB_MAGIC)) {
+      throw new Error(
+        `File "${bn}" does not begin with the GLB magic header 'glTF'. Refusing to upload.`,
+      );
+    }
+  }
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  // absolutePath is meaningless for buffer input; keep the interface
+  // stable by returning the basename as the "path" — server callers
+  // never touch this field.
+  return { absolutePath: bn, basename: bn, sizeBytes: body.length, sha256, body };
+}

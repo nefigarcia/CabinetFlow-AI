@@ -13,6 +13,22 @@ import { verifyUpload } from "./verify";
 // interesting logic (validation, key generation, upload orchestration,
 // post-upload verification) lives in dedicated modules and is
 // unit-tested with mocks.
+//
+// ONE SERVICE LAYER — the API's `sceneAssetUploadService.ts` also
+// composes the SAME `uploadSceneAsset` + `verifyUpload` +
+// `validateAndHash*` primitives; it just adds DB persistence
+// (SceneAssetDefinition insert) on top. No business rule is
+// duplicated between CLI and API.
+//
+// The CLI remains the right tool for:
+//   · Bulk imports (a script uploads N GLBs in a row).
+//   · CI / admin scripting where no user session exists.
+//   · Migrations / seeding.
+//   · Local development against a real S3 without going through the API.
+//
+// For the "developer normal" flow — upload + create the DB definition
+// in one shot — the Asset Library UI (apps/web /assets → + Add Asset)
+// is now the primary path.
 
 async function main(): Promise<void> {
   const args = parseUploadArgs(process.argv.slice(2));

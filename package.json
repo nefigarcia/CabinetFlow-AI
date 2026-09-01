@@ -18,7 +18,8 @@
     "db:reset:local-only-danger": "npm run --prefix packages/db db:reset:local-only-danger",
     "asset:upload": "npm run --prefix packages/asset-cli asset:upload --",
     "asset:check": "npm run --prefix packages/asset-cli asset:check --",
-    "asset:validate-catalog": "npm run --prefix packages/asset-cli asset:validate-catalog"
+    "asset:validate-catalog": "npm run --prefix packages/asset-cli asset:validate-catalog",
+    "assets:seed": "npm run --prefix packages/db db:seed"
   },
   "devDependencies": {
     "prettier": "^3.3.0",

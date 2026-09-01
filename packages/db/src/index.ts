@@ -1,5 +1,5 @@
 export { prisma } from "./client";
-export { Prisma } from "@prisma/client";
+export { Prisma, PrismaClient } from "@prisma/client";
 export type {
   Organization,
   User,
@@ -19,4 +19,5 @@ export type {
   Quote,
   InstallerFeedback,
   SceneAssetInstance,
+  SceneAssetDefinition,
 } from "@prisma/client";

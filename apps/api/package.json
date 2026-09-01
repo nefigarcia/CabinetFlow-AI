@@ -12,7 +12,9 @@
     "db:generate": "cd ../../packages/db && prisma generate"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.670.0",
     "@prisma/client": "^5.20.0",
+    "@woodcraft/asset-cli": "*",
     "@woodcraft/db": "*",
     "@woodcraft/shared": "*",
     "bcryptjs": "^2.4.3",

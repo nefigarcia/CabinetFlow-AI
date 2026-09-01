@@ -508,6 +508,76 @@ model SceneAssetInstance {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 17b. SCENE ASSET DEFINITIONS
+// Reusable catalog entries — the "types" that SceneAssetInstance references.
+// Scope semantics:
+//   · scope="system"  → visible to all orgs, orgId=null. Managed by a
+//     platform admin (currently gated on role="owner"; the seam is
+//     documented in apps/api/src/lib/scenePlatformAdmin.ts).
+//   · scope="org"     → visible only to the owning org, orgId=<orgId>.
+// SceneAssetInstance.assetDefinitionId still has no FK: an instance may
+// reference a system definition, an org-scoped definition, or a legacy
+// code-catalog id (during rollout). Availability is enforced at the API
+// layer, matching the existing pattern.
+//
+// Nested metadata (placement, collision, model, provenance) uses the same
+// safe JSON storage convention as every other Json column in the schema
+// (physically LONGTEXT; see packages/db/MIGRATIONS.md "Known drift alert").
+// ─────────────────────────────────────────────────────────────────────────────
+model SceneAssetDefinition {
+  id            String   @id @default(cuid())
+  scope         String   @db.VarChar(32) // "system" | "org"
+  orgId         String?  @map("org_id")
+
+  // Human-readable + optional slug for legacy code-catalog compatibility.
+  // When a SYSTEM asset is seeded from `DEFAULT_SCENE_ASSET_CATALOG`, the
+  // catalog id lands here so existing SceneAssetInstance.assetDefinitionId
+  // values keep resolving.
+  slug          String?  @db.VarChar(191)
+  name          String   @db.VarChar(255)
+  description   String?  @db.Text
+  category      String   @db.VarChar(64)
+
+  // Dimensions in mm (positive; validated at API layer).
+  widthMm       Decimal  @map("width_mm") @db.Decimal(12, 4)
+  heightMm      Decimal  @map("height_mm") @db.Decimal(12, 4)
+  depthMm       Decimal  @map("depth_mm") @db.Decimal(12, 4)
+
+  // Nested domain structures — persisted as JSON blobs.
+  placement     Json?
+  collision     Json?
+  model         Json?
+  provenance    Json?
+  metadata      Json?
+
+  // Denormalized for search / archive filters without JSON access.
+  assetKey      String?  @map("asset_key") @db.VarChar(512)
+  thumbnailKey  String?  @map("thumbnail_key") @db.VarChar(512)
+  manufacturer  String?  @db.VarChar(255)
+  sku           String?  @db.VarChar(191)
+  tags          Json?    // string[]
+
+  // Immutable-versioning family: rows with the same `family` and
+  // increasing `revision` represent the version chain of one logical
+  // asset. Current active row is picked by (family, revision desc,
+  // active=true). Existing instances retain their assetDefinitionId
+  // pointer so their geometry never silently changes.
+  family        String   @db.VarChar(191)
+  revision      Int      @default(1)
+
+  active        Boolean  @default(true)
+  systemManaged Boolean  @default(false) @map("system_managed")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([scope, orgId, active])
+  @@index([family, revision])
+  @@index([category])
+  @@map("scene_asset_definitions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 18. INSTALLER FEEDBACK
 // Field reports from installers — drives AI improvement loop.
 // ─────────────────────────────────────────────────────────────────────────────

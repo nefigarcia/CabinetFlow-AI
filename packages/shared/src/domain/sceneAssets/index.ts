@@ -75,6 +75,21 @@ export type {
   SceneAssetModelRef,
   SceneAssetProvenance,
 } from "./scene-asset-definition";
+
+export type {
+  SceneAssetDefinitionCreateInput,
+  SceneAssetDefinitionPatchInput,
+  SceneAssetDefinitionRecord,
+  SceneAssetDefinitionScope,
+} from "./definition-persistence";
+export {
+  assertScopeConsistent,
+  canRead as canReadSceneAssetDefinition,
+  canWrite as canWriteSceneAssetDefinition,
+  sceneAssetDefinitionCreateSchema,
+  sceneAssetDefinitionPatchSchema,
+  toSceneAssetDefinition,
+} from "./definition-persistence";
 export {
   findModeledDefinitionsMissingProvenance,
   hasModel,

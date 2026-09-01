@@ -3,6 +3,7 @@
 
 export { loadConfig, type AssetCliConfig } from "./config";
 export {
+  validateAndHashBuffer,
   validateAndHashFile,
   type FileValidationOptions,
   type ValidatedFile,
