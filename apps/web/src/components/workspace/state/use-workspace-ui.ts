@@ -9,10 +9,8 @@ import { create } from "zustand";
 // milestone, this store gets a `hydrateFromLocalStorage` action.
 
 export type ViewMode = "3d" | "2d" | "elevation" | "walkthrough";
-// `sceneAsset` is only reachable when NEXT_PUBLIC_FEATURE_SCENE_ASSETS is on
-// (InspectorPanel filters the tab list); it is declared here so the store
-// and inspector remain type-safe whether the flag is on or off.
 // `architecture` is reachable when the architecture edit mode is on.
+// `sceneAsset` is always reachable.
 export type InspectorTab =
   | "cabinet"
   | "material"

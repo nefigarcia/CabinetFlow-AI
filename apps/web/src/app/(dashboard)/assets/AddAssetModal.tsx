@@ -106,14 +106,19 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
     setThumbnailFile(f);
   };
 
-  const isValid = useMemo(() => {
-    if (name.trim().length === 0) return false;
-    if (widthMm <= 0 || heightMm <= 0 || depthMm <= 0) return false;
-    if (!modelFile) return false;
-    if (license.trim().length === 0 || sourceName.trim().length === 0) return false;
-    if (modelError || thumbnailError) return false;
-    return true;
-  }, [name, widthMm, heightMm, depthMm, modelFile, license, sourceName, modelError, thumbnailError]);
+  // Human-readable list of missing required fields — surfaced next to
+  // the disabled Upload button so the user isn't left guessing.
+  const missing = useMemo(() => {
+    const out: string[] = [];
+    if (!modelFile) out.push("3D model (GLB)");
+    if (name.trim().length === 0) out.push("Name");
+    if (widthMm <= 0 || heightMm <= 0 || depthMm <= 0) out.push("Positive dimensions");
+    if (license.trim().length === 0) out.push("License");
+    if (sourceName.trim().length === 0) out.push("Source name");
+    return out;
+  }, [name, widthMm, heightMm, depthMm, modelFile, license, sourceName]);
+
+  const isValid = missing.length === 0 && !modelError && !thumbnailError;
 
   const handleSubmit = async () => {
     if (!isValid || !modelFile || submitting) return;
@@ -387,21 +392,33 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-surface-200">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="text-sm text-gray-400 hover:text-white px-3 py-1.5 rounded-md transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleSubmit()}
-            disabled={!isValid || submitting}
-            className="text-sm bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-1.5 rounded-md transition-colors"
-          >
-            {submitting ? "Uploading…" : "Upload Asset"}
-          </button>
+        <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-surface-200">
+          {/* Missing-fields hint — makes the disabled Upload button
+              self-explanatory instead of silently unclickable. */}
+          <div className="text-[11px] text-gray-500 min-h-[16px] flex-1 truncate">
+            {missing.length > 0 && !submitting && (
+              <span style={{ color: "#c8852a" }}>
+                Missing: {missing.join(", ")}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="text-sm text-gray-400 hover:text-white px-3 py-1.5 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void handleSubmit()}
+              disabled={!isValid || submitting}
+              title={!isValid && missing.length > 0 ? `Missing: ${missing.join(", ")}` : undefined}
+              className="text-sm bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-1.5 rounded-md transition-colors"
+            >
+              {submitting ? "Uploading…" : "Upload Asset"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -175,7 +175,6 @@ Until CloudFront + OAC exist, you can point `NEXT_PUBLIC_SCENE_ASSET_BASE_URL` a
 | `AWS_SECRET_ACCESS_KEY` | server / CLI | IAM secret (never public) |
 | `S3_BUCKET_NAME` | server / CLI | Target bucket for PutObject |
 | `NEXT_PUBLIC_SCENE_ASSET_BASE_URL` | browser (Next inlines at build) | CDN/CloudFront root; local fallback when empty |
-| `NEXT_PUBLIC_FEATURE_SCENE_ASSETS` | browser | Feature flag |
 
 **Never** create a `NEXT_PUBLIC_AWS_*` variable — that would ship credentials to every browser.
 

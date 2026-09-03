@@ -5,14 +5,13 @@
 // "1") stays consistent across the app and the API. Next.js inlines
 // `NEXT_PUBLIC_*` reads at build time, so referencing these constants is
 // tree-shakeable when the flag is off.
+//
+// No flags are currently active — the Scene Asset flag was retired once
+// the DB-backed Asset Library shipped and the feature became the
+// default. New flags go here and follow the same import pattern.
 
 import { isFeatureEnabled } from "@woodcraft/shared";
 
-/**
- * Gates the Scene Asset system (Slice 2+). When disabled: no scene layer
- * mounts, no scene-asset UI appears, no dev seed control is visible.
- * The current Rooms workspace behaves exactly as before.
- */
-export const SCENE_ASSETS_ENABLED = isFeatureEnabled(
-  process.env.NEXT_PUBLIC_FEATURE_SCENE_ASSETS,
-);
+// Re-exported so future flag definitions in this file can use the same
+// truthy convention without a second import.
+export { isFeatureEnabled };

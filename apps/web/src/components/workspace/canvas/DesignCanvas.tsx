@@ -11,7 +11,6 @@ import { RoomShell } from "@/components/editor/RoomShell";
 import { CabinetSceneItem } from "./scene/CabinetSceneItem";
 import { DrawWallTool } from "./scene/DrawWallTool";
 import { SceneAssetLayer } from "./scene/SceneAssetLayer";
-import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import type { Cabinet, Room } from "@woodcraft/shared";
 
 // The design canvas hosts the R3F scene: room shell, cabinet meshes,
@@ -82,11 +81,9 @@ export function DesignCanvas({ projectId, room, cabinets }: Props) {
       {cabinets.map((cab) => (
         <CabinetSceneItem key={cab.id} cabinet={cab} />
       ))}
-      {/* Scene Assets — visualization/reference layer. Gated by the
-          NEXT_PUBLIC_FEATURE_SCENE_ASSETS flag so production builds with
-          the flag OFF tree-shake the layer entirely. Cabinet rendering
+      {/* Scene Assets — visualization/reference layer. Cabinet rendering
           above is unchanged. */}
-      {SCENE_ASSETS_ENABLED && <SceneAssetLayer projectId={projectId} />}
+      <SceneAssetLayer projectId={projectId} />
       {/* Draw-wall canvas tool — mounted always but self-gates on the
           architecture edit mode + draw phase. */}
       <DrawWallTool projectId={projectId} room={room} />

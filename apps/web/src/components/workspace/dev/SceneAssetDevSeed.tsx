@@ -4,18 +4,16 @@ import { useState } from "react";
 import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
 import { useSceneAssets } from "@/hooks/useSceneAssets";
-import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 
 // DEVELOPMENT-ONLY seed control.
 //
 // Renders nothing in production (`NODE_ENV === "production"`) so it can
-// never appear in a shipped build. Also renders nothing when the scene-
-// assets feature flag is off.
+// never appear in a shipped build.
 //
-// Slice 6: the seed now exercises the REAL persistence path (POST to the
-// scene-assets route → server-generated cuid → store update → select).
-// This lets a dev verify auth, tenancy scoping, and the migrated table
-// in one click. Once the catalog UI is enough for smoke-testing, this
+// The seed exercises the REAL persistence path (POST to the scene-
+// assets route → server-generated cuid → store update → select). Lets
+// a dev verify auth, tenancy scoping, and the migrated table in one
+// click. Once the catalog UI is enough for smoke-testing, this
 // component can be deleted.
 
 const CATALOG_SOFA_ID = "sofa-3seat-generic";
@@ -31,11 +29,9 @@ export function SceneAssetDevSeed({ projectId }: Props) {
   const { create, remove } = useSceneAssets(projectId);
   const [busy, setBusy] = useState(false);
 
-  // Double-gate. Both checks are compile-time-inlined by Next.js /
-  // webpack DefinePlugin, so a production build tree-shakes this
-  // component entirely.
+  // Production tree-shakes this away: `process.env.NODE_ENV` is
+  // compile-time-inlined by Next.js.
   if (process.env.NODE_ENV === "production") return null;
-  if (!SCENE_ASSETS_ENABLED) return null;
 
   const canSeed = Boolean(projectId && selectedRoomId);
 

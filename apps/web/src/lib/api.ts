@@ -98,21 +98,39 @@ async function requestRaw(
   return res;
 }
 
+async function parseError(res: Response): Promise<ApiError> {
+  // Defensive: 5xx often returns Next.js's default HTML crash page or
+  // an empty body — never assume JSON. Try JSON first, fall back to
+  // text, then finally to a generic message including the status code.
+  // Keeps runtime failures diagnosable in the browser console instead
+  // of surfacing as "Unexpected end of JSON input".
+  const text = await res.text().catch(() => "");
+  if (text.length > 0) {
+    try {
+      const j = JSON.parse(text) as { error?: string; code?: string };
+      if (j && typeof j.error === "string") {
+        return new ApiError(j.error, res.status, j.code);
+      }
+    } catch {
+      // Not JSON — fall through to raw-text surfacing.
+    }
+    return new ApiError(
+      `${res.status} ${res.statusText}: ${text.trim().slice(0, 500)}`,
+      res.status,
+    );
+  }
+  return new ApiError(`${res.status} ${res.statusText}`, res.status);
+}
+
 async function requestFile<T>(path: string, body: FormData): Promise<T> {
   const res = await requestRaw(path, { method: "POST", body }, true);
-  if (!res.ok) {
-    const err = (await res.json()) as { error: string; code?: string };
-    throw new ApiError(err.error, res.status, err.code);
-  }
+  if (!res.ok) throw await parseError(res);
   return res.json() as Promise<T>;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await requestRaw(path, options);
-  if (!res.ok) {
-    const err = (await res.json()) as { error: string; code?: string };
-    throw new ApiError(err.error, res.status, err.code);
-  }
+  if (!res.ok) throw await parseError(res);
   return res.json() as Promise<T>;
 }
 
