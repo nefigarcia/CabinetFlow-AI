@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useEditorStore } from "@/store/editor";
 import { RoomSelector } from "@/components/editor/RoomSelector";
 import { AddCabinetButton } from "@/components/editor/AddCabinetButton";
-import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import { CatalogPanel } from "./catalog/CatalogPanel";
 import { CabinetLibraryPanel } from "./catalog/CabinetLibraryPanel";
 import { useWorkspaceUiStore } from "../state/use-workspace-ui";
@@ -15,12 +14,9 @@ import type { Cabinet, Room } from "@woodcraft/shared";
 // Layout:
 //   · Rooms selector at the top
 //   · "Components / Assets" region below with sub-tabs:
-//       · Cabinets — always shown
-//       · Catalog  — added when NEXT_PUBLIC_FEATURE_SCENE_ASSETS is on
-//
-// When the feature flag is off, the sub-tabs are hidden entirely and the
-// panel renders exactly as it did before (Rooms + Cabinets + a small
-// "Component Library — coming soon" placeholder at the bottom).
+//       · Cabinets     — cabinet library + placed list
+//       · Scene Assets — DB-backed Scene Asset catalog
+//                        (SYSTEM + own-org active definitions)
 
 interface Props {
   projectId: string;
@@ -44,8 +40,7 @@ export function RoomContextPanel({
     (s) => s.setArchitectureEditMode,
   );
 
-  const [contentTab, setContentTab] = useState<ContentTab>("cabinets");
-  const activeTab: ContentTab = SCENE_ASSETS_ENABLED ? contentTab : "cabinets";
+  const [activeTab, setActiveTab] = useState<ContentTab>("cabinets");
 
   return (
     <div className="flex flex-col h-full">
@@ -82,24 +77,22 @@ export function RoomContextPanel({
         <RoomSelector rooms={rooms} projectId={projectId} />
       </section>
 
-      {/* Content sub-tabs — only when the scene-assets feature is on. */}
-      {SCENE_ASSETS_ENABLED && (
-        <div
-          className="flex items-center flex-shrink-0"
-          style={{ borderBottom: "1px solid #1E2226" }}
-        >
-          <ContentTabButton
-            label="Cabinets"
-            active={activeTab === "cabinets"}
-            onClick={() => setContentTab("cabinets")}
-          />
-          <ContentTabButton
-            label="Catalog"
-            active={activeTab === "catalog"}
-            onClick={() => setContentTab("catalog")}
-          />
-        </div>
-      )}
+      {/* Content sub-tabs */}
+      <div
+        className="flex items-center flex-shrink-0"
+        style={{ borderBottom: "1px solid #1E2226" }}
+      >
+        <ContentTabButton
+          label="Cabinets"
+          active={activeTab === "cabinets"}
+          onClick={() => setActiveTab("cabinets")}
+        />
+        <ContentTabButton
+          label="Scene Assets"
+          active={activeTab === "catalog"}
+          onClick={() => setActiveTab("catalog")}
+        />
+      </div>
 
       {/* Content — Cabinets tab (library + placed list) */}
       {activeTab === "cabinets" && (
@@ -154,29 +147,10 @@ export function RoomContextPanel({
         </section>
       )}
 
-      {/* Content — Catalog tab (flag on) */}
-      {activeTab === "catalog" && SCENE_ASSETS_ENABLED && (
+      {/* Content — Scene Assets tab */}
+      {activeTab === "catalog" && (
         <section className="flex-1 min-h-0">
           <CatalogPanel projectId={projectId} />
-        </section>
-      )}
-
-      {/* Legacy library placeholder — only visible when the scene-assets
-          feature is OFF. When on, the actual Catalog tab replaces it. */}
-      {!SCENE_ASSETS_ENABLED && (
-        <section
-          className="px-3 py-2.5"
-          style={{ borderTop: "1px solid #1E2226" }}
-        >
-          <button
-            disabled
-            className="w-full text-left px-2 py-1.5 rounded-md text-xs flex items-center justify-between cursor-not-allowed"
-            style={{ color: "#3A4050" }}
-            title="Component Library — coming soon"
-          >
-            <span>◫ Component Library</span>
-            <span className="text-[9px] uppercase tracking-wider">Soon</span>
-          </button>
         </section>
       )}
     </div>

@@ -13,7 +13,6 @@ import { MaterialInspector } from "./MaterialInspector";
 import { RoomInspector } from "./RoomInspector";
 import { SceneAssetInspector, SceneAssetInspectorEmpty } from "./SceneAssetInspector";
 import { ArchitectureInspector, ArchitectureInspectorEmpty } from "./ArchitectureInspector";
-import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
 import type { ValidationReport } from "@/hooks/useCabinets";
 
@@ -75,13 +74,11 @@ export function InspectorPanel({
     ? sceneAssetDefinitions.find((d) => d.id === sceneAssetInstance.assetDefinitionId)
     : undefined;
 
-  // Tabs — Scene Asset tab appears only when the feature flag is on;
-  // Architecture tab appears only when architecture edit mode is on.
-  // When either is disabled, the tab's InspectorTab value stays type-
-  // safe but is unreachable through the strip.
+  // Tabs — Architecture tab appears only when architecture edit mode is
+  // on. When it's off, the tab's InspectorTab value stays type-safe but
+  // is unreachable through the strip.
   const tabs = useMemo<readonly TabDescriptor[]>(() => {
-    const list: TabDescriptor[] = [...BASE_TABS];
-    if (SCENE_ASSETS_ENABLED) list.push(SCENE_ASSET_TAB);
+    const list: TabDescriptor[] = [...BASE_TABS, SCENE_ASSET_TAB];
     if (architectureEditMode === "on") list.push(ARCHITECTURE_TAB);
     return list;
   }, [architectureEditMode]);
@@ -183,8 +180,8 @@ export function InspectorPanel({
           ))}
         {inspectorTab === "material" && <MaterialInspector selectedCabinet={cabinet} />}
         {inspectorTab === "room" && <RoomInspector room={room} />}
-        {inspectorTab === "sceneAsset" && SCENE_ASSETS_ENABLED && (
-          sceneAssetInstance ? (
+        {inspectorTab === "sceneAsset" &&
+          (sceneAssetInstance ? (
             <SceneAssetInspector
               projectId={projectId}
               instance={sceneAssetInstance}
@@ -192,8 +189,7 @@ export function InspectorPanel({
             />
           ) : (
             <SceneAssetInspectorEmpty />
-          )
-        )}
+          ))}
         {inspectorTab === "architecture" && architectureEditMode === "on" && (
           room ? (
             <ArchitectureInspector projectId={projectId} room={room} />

@@ -5,15 +5,14 @@ import {
   useWorkspaceUiStore,
   type SceneAssetTransformMode,
 } from "../state/use-workspace-ui";
-import { SCENE_ASSETS_ENABLED } from "@/lib/features";
 
 // Floating transform-mode toolbar for Scene Assets.
 //
-// Visible only when a Scene Asset is currently selected AND the feature
-// flag is on. Positioned separately from `CanvasToolbar` (bottom-left) so
-// it never overlaps the cabinet-focused Fit / Snapshot controls. Two
-// buttons: Move / Rotate — scale is intentionally never a mode
-// (user-facing scale stays at identity per Slice 6 Scale Policy).
+// Visible only when a Scene Asset is currently selected. Positioned
+// separately from `CanvasToolbar` (bottom-left) so it never overlaps
+// the cabinet-focused Fit / Snapshot controls. Two buttons: Move /
+// Rotate — scale is intentionally never a mode (user-facing scale
+// stays at identity per Slice 6 Scale Policy).
 
 const MODES: readonly {
   id: SceneAssetTransformMode;
@@ -30,7 +29,6 @@ export function SceneAssetToolbar() {
   const mode = useWorkspaceUiStore((s) => s.sceneAssetTransformMode);
   const setMode = useWorkspaceUiStore((s) => s.setSceneAssetTransformMode);
 
-  if (!SCENE_ASSETS_ENABLED) return null;
   if (!selectedId) return null;
 
   return (

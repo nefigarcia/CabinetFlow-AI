@@ -9,7 +9,7 @@ import { useProject, useRoomCabinets } from "@/hooks/useProject";
 import { useCabinets } from "@/hooks/useCabinets";
 import { useCollab } from "@/hooks/useCollab";
 import { useRoomSceneAssets } from "@/hooks/useRoomSceneAssets";
-import { SCENE_ASSETS_ENABLED } from "@/lib/features";
+import { useSceneAssetDefinitions } from "@/hooks/useSceneAssetDefinitions";
 import { CabinetPreviewModal } from "@/components/editor/CabinetPreviewModal";
 import AICopilotPanel, { type AICabinetSpec } from "@/components/editor/AICopilotPanel";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -62,11 +62,22 @@ export function RoomsWorkspace({ projectId }: Props) {
     useCabinets(projectId);
   useCollab(projectId);
 
-  // Scene Asset per-room hydration — gated by the feature flag so
-  // production with the flag off makes zero extra requests. When enabled,
-  // switching rooms replaces the store with the new room's instances
-  // (Option A hydration, matching the cabinet pattern).
-  useRoomSceneAssets(projectId, SCENE_ASSETS_ENABLED ? selectedRoomId : null);
+  // Scene Asset per-room hydration — switching rooms replaces the
+  // store with the new room's instances (Option A hydration, matching
+  // the cabinet pattern).
+  useRoomSceneAssets(projectId, selectedRoomId);
+
+  // Load the DB-backed Scene Asset DEFINITIONS into the shared store
+  // whenever the workspace mounts. Without this, the store falls back
+  // to the static DEFAULT_SCENE_ASSET_CATALOG and any org-uploaded
+  // asset (e.g. the refrigerator from the Asset Library) is invisible
+  // in the room's Scene Assets tab.
+  //
+  // The Asset Library page calls the SAME hook so both surfaces stay
+  // consistent — setDefinitions replaces the store list in one shot.
+  // Runs regardless of the feature flag (cheap: one GET returning the
+  // active list); the flag only decides whether the tab shows.
+  useSceneAssetDefinitions();
 
   const aiCopilotOpen = useWorkspaceUiStore((s) => s.aiCopilotOpen);
   const setAiCopilotOpen = useWorkspaceUiStore((s) => s.setAiCopilotOpen);
