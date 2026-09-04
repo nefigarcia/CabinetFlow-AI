@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import {
   DEFAULT_DUPLICATE_OFFSET_MM_X,
   duplicateSceneAssetInstance,
   getRoomArchitecture,
   getWallFrame,
+  hasModel,
   isWallAttached,
   resolveWallAttachedSceneAssetTransform,
   SCENE_ASSET_CATEGORY_LABELS,
@@ -20,7 +21,14 @@ import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
 import { useSceneAssets } from "@/hooks/useSceneAssets";
 import { useDebounce } from "@/lib/useDebounce";
+import { resolveSceneAssetUrl } from "@/lib/scene/resolveSceneAssetUrl";
+import {
+  getSceneAssetLoadStatus,
+  subscribeSceneAssetLoadStatus,
+} from "@/lib/scene/sceneAssetLoadStatus";
 import { SceneAssetSpatialValidation } from "./SceneAssetSpatialValidation";
+
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 // Inspector body for a selected Scene Asset instance — Slice 6 persistence.
 //
@@ -296,6 +304,12 @@ export function SceneAssetInspector({ projectId, instance, definition }: Props) 
           </section>
         )}
 
+        {/* Model status — dev-only. Tells the user whether the on-screen
+            asset is a real GLB or a primitive fallback, and if failed
+            surfaces the load error (so a broken CDN URL or corrupt file
+            is never diagnosed by staring at boxes). */}
+        {IS_DEV && definition && <DevModelStatusSection definition={definition} />}
+
         {/* Position — editable. Y=0 rests on floor (bottom-center anchor). */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
@@ -463,6 +477,89 @@ function WallAttachmentSection({
           >
             Detach from wall
           </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DevModelStatusSection({ definition }: { definition: SceneAssetDefinition }) {
+  const url = hasModel(definition)
+    ? resolveSceneAssetUrl(definition.model!.assetKey)
+    : null;
+
+  const status = useSyncExternalStore(
+    subscribeSceneAssetLoadStatus,
+    () => getSceneAssetLoadStatus(url),
+    () => getSceneAssetLoadStatus(url),
+  );
+
+  const dims = definition.dimensionsMm;
+
+  return (
+    <section
+      className="rounded-md p-3"
+      style={{ background: "#0f1116", border: "1px dashed #2E3240" }}
+    >
+      <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
+        Model <span className="ml-1 text-gray-600 normal-case">(dev)</span>
+      </p>
+
+      <div className="space-y-1 text-[11px] text-gray-400 font-mono break-all">
+        <div>
+          <span className="text-gray-500">id:</span> {definition.id}
+        </div>
+        {definition.model ? (
+          <>
+            <div>
+              <span className="text-gray-500">assetKey:</span>{" "}
+              {definition.model.assetKey}
+            </div>
+            <div>
+              <span className="text-gray-500">url:</span> {url ?? "(unresolved)"}
+            </div>
+          </>
+        ) : (
+          <div className="text-yellow-500">
+            No model registered — primitive renderer by design.
+          </div>
+        )}
+
+        <div className="mt-2">
+          <span className="text-gray-500">catalog dims (mm):</span>{" "}
+          {dims.widthMm} × {dims.heightMm} × {dims.depthMm}
+        </div>
+      </div>
+
+      {definition.model && (
+        <div className="mt-3 text-[11px]">
+          {status === null && (
+            <p className="text-gray-500">
+              ⏳ Not yet loaded — scroll the asset into view.
+            </p>
+          )}
+          {status?.kind === "loaded" && (
+            <div className="space-y-1">
+              <p className="text-green-400">✓ GLB loaded</p>
+              <p className="text-gray-400 font-mono">
+                meshes: {status.meshCount} · scale: {status.normalizationScale.toFixed(4)}
+              </p>
+              <p className="text-gray-400 font-mono">
+                raw bbox (m):{" "}
+                {(status.rawBboxMeters.max.x - status.rawBboxMeters.min.x).toFixed(3)}{" "}
+                ×{" "}
+                {(status.rawBboxMeters.max.y - status.rawBboxMeters.min.y).toFixed(3)}{" "}
+                ×{" "}
+                {(status.rawBboxMeters.max.z - status.rawBboxMeters.min.z).toFixed(3)}
+              </p>
+            </div>
+          )}
+          {status?.kind === "failed" && (
+            <div className="space-y-1">
+              <p className="text-red-400">⚠ Primitive fallback — GLB load failed</p>
+              <p className="text-gray-400 font-mono">reason: {status.message}</p>
+            </div>
+          )}
         </div>
       )}
     </section>

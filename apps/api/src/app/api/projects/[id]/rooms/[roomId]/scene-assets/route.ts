@@ -8,7 +8,11 @@ import {
   serializeSceneAssetInstance,
 } from "@/lib/sceneAssetSerializer";
 import {
-  DEFAULT_SCENE_ASSET_CATALOG,
+  explainPlacementRejection,
+  resolveDefinitionForPlacement,
+  resolveLegacyStaticDefinition,
+} from "@/lib/sceneAssetDefinitionResolver";
+import {
   getRoomArchitecture,
   normalizeInstancePlacement,
 } from "@woodcraft/shared";
@@ -19,11 +23,6 @@ type Params = { params: { id: string; roomId: string } };
 async function assertRoom(roomId: string, projectId: string, orgId: string) {
   return prisma.room.findFirst({ where: { id: roomId, projectId, orgId } });
 }
-
-/** Bootstrap catalog validation — no DB table for definitions in MVP. */
-const KNOWN_DEFINITION_IDS = new Set(
-  DEFAULT_SCENE_ASSET_CATALOG.map((d) => d.id),
-);
 
 export async function GET(req: NextRequest, { params }: Params) {
   const { orgId } = getContext(req);
@@ -56,14 +55,33 @@ export async function POST(req: NextRequest, { params }: Params) {
   const parsed = parseBody(createSceneAssetInstanceSchema, body);
   if (!parsed.success) return apiError(parsed.error, 422, "VALIDATION_ERROR");
 
-  // The catalog is in shared code (no DB FK). Reject unknown ids here so
-  // we never persist arbitrary strings.
-  if (!KNOWN_DEFINITION_IDS.has(parsed.data.assetDefinitionId)) {
-    return apiError(
-      `Unknown scene-asset definition: ${parsed.data.assetDefinitionId}`,
-      422,
-      "VALIDATION_ERROR",
-    );
+  // Definition authority: DB is the runtime source of truth. The
+  // resolver enforces tenancy (system OR own-org) + active-only rules.
+  // Legacy `DEFAULT_SCENE_ASSET_CATALOG` ids are accepted as a
+  // read-only compatibility bridge for SYSTEM slugs seeded into the
+  // static catalog — this keeps a fresh install with no DB seed still
+  // able to place primitives from code.
+  const assetDefinitionId = parsed.data.assetDefinitionId;
+  const dbResolved = await resolveDefinitionForPlacement({
+    prisma,
+    definitionId: assetDefinitionId,
+    orgId,
+  });
+  if (!dbResolved) {
+    const legacy = resolveLegacyStaticDefinition(assetDefinitionId);
+    if (!legacy) {
+      // Distinguish not-found vs archived vs no-access with a targeted
+      // second query — so the client can show a specific message.
+      const explain = await explainPlacementRejection({
+        prisma,
+        definitionId: assetDefinitionId,
+        orgId,
+      });
+      return apiError(explain.message, explain.status, "DEFINITION_UNAVAILABLE");
+    }
+    // Legacy static definition — placement is allowed for backwards
+    // compatibility. No further authorization needed (static entries
+    // are SYSTEM by design).
   }
 
   const placement = normalizeInstancePlacement(parsed.data.placement);

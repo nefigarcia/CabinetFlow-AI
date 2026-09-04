@@ -60,8 +60,12 @@ export async function GET(req: NextRequest): Promise<Response> {
       : activeParam === "false"
         ? { active: false }
         : {};
-  // Non-admins cannot request archived rows.
-  if (!admin && activeParam !== "true") {
+  // Cross-org archived listing is admin-only (defense in depth: keeps
+  // the admin overview from surfacing archived rows outside the
+  // requester's tenancy). Own-org + system callers may request
+  // archived rows because the RENDER path needs archived definitions
+  // to keep historic room instances resolvable.
+  if (!admin && activeParam === "false" && scopeParam !== "org" && scopeParam !== "system") {
     return apiError("Archived listing is restricted", 403);
   }
 

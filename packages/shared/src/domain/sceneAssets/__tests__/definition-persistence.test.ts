@@ -63,6 +63,13 @@ describe("toSceneAssetDefinition — DB row → runtime shape", () => {
     expect(def.thumbnailKey).toBe("appliance/def_abc/v1/override.webp");
   });
 
+  it("propagates the `active` flag onto the runtime shape (needed for CatalogPanel filtering)", () => {
+    const active = toSceneAssetDefinition(makeRecord({ active: true }));
+    const archived = toSceneAssetDefinition(makeRecord({ active: false }));
+    expect(active.active).toBe(true);
+    expect(archived.active).toBe(false);
+  });
+
   it("passes primitive-only records (no model) cleanly", () => {
     const def = toSceneAssetDefinition(
       makeRecord({ model: null, assetKey: null, thumbnailKey: null }),

@@ -8,6 +8,7 @@ import {
   type SceneAssetDefinitionCreateInput,
 } from "@woodcraft/shared";
 import { createSceneAssetDefinitionMultipart } from "@/hooks/useSceneAssetDefinitions";
+import { probeGlbDimensionsMm } from "@/lib/scene/probeGlbDimensions";
 
 // Add Asset modal — the primary product entry point for the DB-backed
 // Asset Library.
@@ -54,9 +55,12 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
   // Client-side GLB header check on file pick — fast fail before upload.
   const [modelError, setModelError] = useState<string | null>(null);
   const [thumbnailError, setThumbnailError] = useState<string | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeNote, setProbeNote] = useState<string | null>(null);
 
   const handleModelPick = async (f: File | null) => {
     setModelError(null);
+    setProbeNote(null);
     if (!f) {
       setModelFile(null);
       return;
@@ -83,6 +87,32 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
       }
     }
     setModelFile(f);
+
+    // Probe the GLB's actual bounding box so dimensions reflect the
+    // model instead of a stale 600×720×560 default. Failures are
+    // non-fatal — user can still adjust the fields manually.
+    setProbing(true);
+    try {
+      const probed = await probeGlbDimensionsMm(f);
+      if (probed) {
+        setWidthMm(probed.widthMm);
+        setHeightMm(probed.heightMm);
+        setDepthMm(probed.depthMm);
+        setProbeNote(
+          `Dimensions auto-detected from GLB bounding box (${probed.widthMm} × ${probed.heightMm} × ${probed.depthMm} mm). Adjust if the model was authored with padding.`,
+        );
+      } else {
+        setProbeNote(
+          "Couldn't auto-detect dimensions from the model. Please enter them manually.",
+        );
+      }
+    } catch {
+      setProbeNote(
+        "Couldn't auto-detect dimensions from the model. Please enter them manually.",
+      );
+    } finally {
+      setProbing(false);
+    }
   };
 
   const handleThumbnailPick = (f: File | null) => {
@@ -246,12 +276,22 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
 
           {/* Dimensions */}
           <section>
-            <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">Dimensions (mm)</p>
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
+              Dimensions (mm)
+              {probing && (
+                <span className="ml-2 text-gray-500 normal-case">probing GLB…</span>
+              )}
+            </p>
             <div className="grid grid-cols-3 gap-2">
               <NumberInput label="Width" value={widthMm} onChange={setWidthMm} />
               <NumberInput label="Height" value={heightMm} onChange={setHeightMm} />
               <NumberInput label="Depth" value={depthMm} onChange={setDepthMm} />
             </div>
+            {probeNote && (
+              <p className="mt-1 text-[11px]" style={{ color: "#9A9288" }}>
+                {probeNote}
+              </p>
+            )}
           </section>
 
           {/* Placement */}

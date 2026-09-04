@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { apiClient } from "@/lib/api";
+import { ApiError, apiClient } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
 import type {
@@ -9,6 +9,8 @@ import type {
   SceneAssetInstanceCreateInput,
   SceneAssetInstanceUpdateInput,
 } from "@woodcraft/shared";
+
+export { ApiError };
 
 // Scene Asset CRUD hook — mirrors `useCabinets` conventions:
 //   · scoped to a specific project (`projectId` from route)
@@ -33,9 +35,14 @@ export function useSceneAssets(projectId: string) {
     return instanceId ? `${base}/${instanceId}` : base;
   };
 
-  /** POST — creates a persistent instance. Adds the server-returned
-   *  instance to the store and returns it. Caller decides whether to
-   *  select it. Returns null on failure. */
+  /**
+   * POST — creates a persistent instance. Adds the server-returned
+   * instance to the store and returns it. THROWS on failure so the
+   * caller can distinguish domain errors (ApiError with a real
+   * message) from network failures (generic error). Returns null ONLY
+   * when there's no selected room — a caller-side precondition, not a
+   * server-side failure.
+   */
   const create = useCallback(
     async (data: SceneAssetInstanceCreateInput): Promise<SceneAssetInstance | null> => {
       if (!selectedRoomId) return null;
@@ -44,9 +51,6 @@ export function useSceneAssets(projectId: string) {
         const instance = await apiClient.post<SceneAssetInstance>(baseUrl(), data);
         addInstance(instance);
         return instance;
-      } catch (e: unknown) {
-        console.error("Create scene asset failed:", e);
-        return null;
       } finally {
         setSaving(false);
       }

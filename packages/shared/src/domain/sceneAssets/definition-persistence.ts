@@ -93,6 +93,7 @@ export function toSceneAssetDefinition(
     placement: row.placement ?? undefined,
     collision: row.collision ?? undefined,
     provenance: row.provenance ?? undefined,
+    active: row.active,
     metadata: row.metadata ?? undefined,
   };
 }

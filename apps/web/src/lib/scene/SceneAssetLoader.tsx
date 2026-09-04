@@ -8,6 +8,7 @@ import {
   computeNormalizationTransform,
   type SceneAssetDefinition,
 } from "@woodcraft/shared";
+import { recordSceneAssetLoaded } from "./sceneAssetLoadStatus";
 
 // GLB / glTF loader for Scene Assets.
 //
@@ -61,15 +62,16 @@ export function SceneAssetLoader({ url, definition }: Props) {
   // Compute a fresh clone whenever the URL or definition normalization
   // changes. Position/rotation/scale of the parent group are applied by
   // `SceneAssetItem` — this component only owns the model-local transform.
-  const normalized = useMemo(() => {
+  const { normalized, meshCount, rawBbox, scale } = useMemo(() => {
     const clone = cloneSceneSafe(scene);
 
-    // Enable shadows uniformly. GLBs from generic sources rarely set these.
+    let meshes = 0;
     clone.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        meshes += 1;
       }
     });
 
@@ -87,8 +89,20 @@ export function SceneAssetLoader({ url, definition }: Props) {
     clone.position.set(t.offsetMeters.x, t.offsetMeters.y, t.offsetMeters.z);
     clone.rotation.set(t.rotationRad.x, t.rotationRad.y, t.rotationRad.z);
 
-    return clone;
+    return { normalized: clone, meshCount: meshes, rawBbox: raw, scale: t.scale };
   }, [scene, definition]);
+
+  // Record success into the dev-only load-status registry so the
+  // inspector can distinguish "real GLB rendered" from "primitive
+  // fallback swapped in by the error boundary".
+  useEffect(() => {
+    recordSceneAssetLoaded({
+      url,
+      meshCount,
+      rawBboxMeters: rawBbox,
+      normalizationScale: scale,
+    });
+  }, [url, meshCount, rawBbox, scale]);
 
   // Free per-instance resources on unmount. drei's cache owns the parsed
   // GLB itself; we only own the clone's THREE.Group.

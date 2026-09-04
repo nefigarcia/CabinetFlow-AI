@@ -1,5 +1,15 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+// Normalize NEXT_PUBLIC_API_URL to always end with `/api`. The root
+// .env stores it as `http://localhost:3001` (no `/api` suffix) to
+// match the cutlist page's `${API_URL}/api/...` composition. This
+// client historically assumed the env value INCLUDED `/api` and used
+// `http://localhost:3001/api` as its fallback — a hidden inconsistency
+// that surfaced once next.config.mjs started loading the root .env.
+// The normalizer accepts either convention.
+const API_BASE = (() => {
+  const raw = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").trim();
+  const noTrailingSlash = raw.replace(/\/+$/, "");
+  return noTrailingSlash.endsWith("/api") ? noTrailingSlash : `${noTrailingSlash}/api`;
+})();
 
 class ApiError extends Error {
   constructor(

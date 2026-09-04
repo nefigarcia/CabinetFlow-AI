@@ -18,6 +18,7 @@ import {
 import { useEditorStore } from "@/store/editor";
 import { resolveSceneAssetUrl } from "@/lib/scene/resolveSceneAssetUrl";
 import { SceneAssetLoader } from "@/lib/scene/SceneAssetLoader";
+import { recordSceneAssetFailed } from "@/lib/scene/sceneAssetLoadStatus";
 import { SceneAssetTransformGizmo } from "./SceneAssetTransformGizmo";
 import { WallAttachedTransformGizmo } from "./WallAttachedTransformGizmo";
 
@@ -125,7 +126,7 @@ export function SceneAssetItem({ projectId, instance, definition }: Props) {
         }}
       >
         {modelUrl ? (
-          <SceneAssetErrorBoundary fallback={primitive}>
+          <SceneAssetErrorBoundary url={modelUrl} fallback={primitive}>
             <Suspense fallback={primitive}>
               <SceneAssetLoader url={modelUrl} definition={definition} />
             </Suspense>
@@ -168,6 +169,7 @@ export function SceneAssetItem({ projectId, instance, definition }: Props) {
 // diagnostic goes to the console; no storage URL / credential leaks.
 
 interface SceneAssetErrorBoundaryProps {
+  url: string;
   fallback: ReactNode;
   children: ReactNode;
 }
@@ -187,7 +189,11 @@ class SceneAssetErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error): void {
-    console.warn("[SceneAssetItem] GLB load failed, using primitive fallback:", error.message);
+    console.warn(
+      `[SceneAssetItem] GLB load failed for ${this.props.url}, using primitive fallback:`,
+      error.message,
+    );
+    recordSceneAssetFailed(this.props.url, error.message);
   }
 
   render() {
