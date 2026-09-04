@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { Html, Line } from "@react-three/drei";
 import { useEditorStore } from "@/store/editor";
@@ -212,42 +212,51 @@ function PolygonSlab({
 }) {
   // Geometry contract:
   //   · Input polygon vertices are in world XZ (mm), CCW.
-  //   · ShapeGeometry lives in the shape's local XY plane at Z = 0.
-  //   · We map polygon (X, Z) → shape (X, Z-as-y) so that a subsequent
-  //     rotation of +π/2 around world +X sends local (X, Y, 0) →
-  //     world (X, 0, Y) — i.e. polygon Z lands on world Z verbatim.
-  //     (The earlier code used -π/2 which sent local Y → world -Y,
-  //     mirroring the whole polygon across Z=0 — that was the bug.)
-  //
-  // Normal direction:
-  //   · Rotation +π/2 sends the shape's default +Z normal to world -Y
-  //     (facing DOWN). Correct for CEILING.
-  //   · For FLOOR we need +Y (facing UP). We flip the normal by
-  //     REVERSING the polygon vertex order before feeding it to Shape:
-  //     earcut then emits triangles with reversed winding whose
-  //     computed normal is -Z (local) → +Y (world) after rotation.
-  //
-  // Both effects are pure — no scale.negative tricks that would silently
-  // corrupt shadow / raycast behavior.
+  //   · ShapeGeometry lives in the shape's local XY plane at Z = 0
+  //     and hardcodes vertex normals to local +Z regardless of winding.
+  //   · Mesh rotation +π/2 around world X sends local (X, Y, 0) →
+  //     world (X, 0, Y) — polygon Z lands on world Z verbatim.
+  //     (The earlier -π/2 rotation mirrored the polygon across Z=0.)
   const shape = useMemo(() => {
     const s = new THREE.Shape();
-    const raw = polygon.pointsMm;
-    if (raw.length < 3) return s;
-    const pts = faceUp ? [...raw].reverse() : raw;
+    const pts = polygon.pointsMm;
+    if (pts.length < 3) return s;
     s.moveTo(mmToMeters(pts[0]!.x), mmToMeters(pts[0]!.z));
     for (let i = 1; i < pts.length; i++) {
       s.lineTo(mmToMeters(pts[i]!.x), mmToMeters(pts[i]!.z));
     }
     s.closePath();
     return s;
-  }, [polygon, faceUp]);
+  }, [polygon]);
+
+  // ShapeGeometry's fixed +Z-normal, after the mesh's +π/2 X-rotation,
+  // ends up pointing world -Y — DOWN into the ground for the floor
+  // and UP through the ceiling. The floor then gets only the ambient
+  // term of the lighting, which reads as near-black regardless of the
+  // chosen material color (walnut appears indistinguishable from black).
+  // Winding tricks don't help — ShapeGeometry ignores winding for
+  // normals. The simplest reliable fix is DoubleSide on this material:
+  // WebGL flips the normal for shading on the back-facing side, so the
+  // visible top face receives full directional light.
+  //
+  // Clone so the shared cached material (owned by the material factory
+  // and possibly used by other single-sided slots) stays untouched.
+  const twoSidedMaterial = useMemo(() => {
+    const m = material.clone();
+    m.side = THREE.DoubleSide;
+    return m;
+  }, [material]);
+
+  useEffect(() => {
+    return () => twoSidedMaterial.dispose();
+  }, [twoSidedMaterial]);
 
   return (
     <mesh
       position={[0, yM, 0]}
       rotation={[Math.PI / 2, 0, 0]}
       receiveShadow
-      material={material}
+      material={twoSidedMaterial}
     >
       <shapeGeometry args={[shape]} />
     </mesh>

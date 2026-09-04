@@ -7,12 +7,14 @@ import type {
   CabinetMaterialSelection,
   MaterialCategory,
   MaterialRenderProfile,
+  MaterialSelection,
   MaterialSlot,
   RoomMaterialSelection,
 } from "@woodcraft/shared";
 import {
   DEMO_MATERIAL_REGISTRY,
   MATERIAL_SLOT_LABELS,
+  resolveSlotMaterial,
   SLOT_ALLOWED_CATEGORIES,
 } from "@woodcraft/shared";
 
@@ -57,16 +59,30 @@ function Swatch({ hex }: { hex: string }) {
 function MaterialPicker({
   label,
   slot,
+  cabinetId,
   currentId,
+  selection,
   onChange,
 }: {
   label: string;
   slot: MaterialSlot;
+  cabinetId: string | null;
   currentId: string | undefined;
+  selection: MaterialSelection;
   onChange: (id: string | undefined) => void;
 }) {
   const options = useMemo(() => optionsForSlot(slot), [slot]);
   const current = currentId ? DEMO_MATERIAL_REGISTRY.find((m) => m.id === currentId) : undefined;
+
+  // What the RESOLVER (and therefore the 3D renderer) will actually
+  // apply for this slot given the current selection + cabinet context.
+  // Surfacing it here closes the feedback gap: without it, the only way
+  // to tell whether a pick took effect is to peer at the 3D view.
+  const resolved = useMemo(
+    () => resolveSlotMaterial(selection, cabinetId, slot),
+    [selection, cabinetId, slot],
+  );
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -95,6 +111,12 @@ function MaterialPicker({
           ))}
         </select>
       </div>
+      <div className="flex items-center gap-1.5 text-[10px] text-gray-500 pl-0.5">
+        <span>rendering:</span>
+        <Swatch hex={resolved.profile.baseColorHex} />
+        <span className="truncate">{resolved.profile.name}</span>
+        <span className="text-gray-600">· {resolved.origin}</span>
+      </div>
     </div>
   );
 }
@@ -119,7 +141,9 @@ export function MaterialInspector({ selectedCabinet }: Props) {
                 key={slot}
                 label={MATERIAL_SLOT_LABELS[slot as MaterialSlot]}
                 slot={slot as MaterialSlot}
+                cabinetId={null}
                 currentId={selection.room[slot]}
+                selection={selection}
                 onChange={(id) => setRoomMaterial(slot, id)}
               />
             ))}
@@ -139,7 +163,9 @@ export function MaterialInspector({ selectedCabinet }: Props) {
                     key={slot}
                     label={MATERIAL_SLOT_LABELS[slot as MaterialSlot]}
                     slot={slot as MaterialSlot}
+                    cabinetId={cab.id}
                     currentId={cabSel[slot]}
+                    selection={selection}
                     onChange={(id) => setCabinetMaterial(cab.id, slot, id)}
                   />
                 ))}
