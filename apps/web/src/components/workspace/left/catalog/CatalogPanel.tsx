@@ -18,6 +18,7 @@ import {
   type SceneAssetDefinition,
   type SceneAssetInstancePlacement,
 } from "@woodcraft/shared";
+import { ApiError } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
 import { useSceneAssetsStore } from "@/store/sceneAssets";
 import { useSceneAssets } from "@/hooks/useSceneAssets";
@@ -49,7 +50,15 @@ interface Props {
 }
 
 export function CatalogPanel({ projectId }: Props) {
-  const definitions = useSceneAssetsStore((s) => s.definitions);
+  const allDefinitions = useSceneAssetsStore((s) => s.definitions);
+  // Archived DB definitions live in the store so the RENDERER can still
+  // resolve them for historic instances, but they must never appear in
+  // the placeable catalog. Legacy static entries have no `active` field
+  // — treat undefined as active.
+  const definitions = useMemo(
+    () => allDefinitions.filter((d) => d.active !== false),
+    [allDefinitions],
+  );
 
   const selectedRoomId = useEditorStore((s) => s.selectedRoomId);
   const rooms = useEditorStore((s) => s.rooms);
@@ -189,8 +198,24 @@ export function CatalogPanel({ projectId }: Props) {
           warnings,
         });
       } else {
+        // Only reachable when there's no room selected — a caller
+        // precondition, not a server failure. Everything else throws.
+        setPlacementError(`Select a room before placing ${definition.name}.`);
+      }
+    } catch (err) {
+      // Distinguish domain errors (server reachable, returned 4xx with
+      // a real message) from actual network failures. The connection
+      // hint is reserved for the latter — never shown for a plain
+      // "asset not available in your organization" 404.
+      if (err instanceof ApiError) {
+        // Server-supplied message is authoritative — the API's
+        // resolver produces user-facing wording like "Unknown asset
+        // definition ..." or "... is archived ...". Prefix with the
+        // asset name for context.
+        setPlacementError(`${definition.name}: ${err.message}`);
+      } else {
         setPlacementError(
-          `Couldn't save ${definition.name}. Check your connection and try again.`,
+          `Couldn't reach the server to place ${definition.name}. Check your connection and try again.`,
         );
       }
     } finally {

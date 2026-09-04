@@ -25,7 +25,12 @@ type ScopeFilter = "all" | "system" | "org";
 type StatusFilter = "active" | "archived";
 
 export default function AssetLibraryPage() {
-  const { loading, error, records, refetch } = useSceneAssetDefinitions();
+  // Admin overview manages its own active/archived toggle via refetch —
+  // opt out of renderMode so the initial fetch respects that toggle
+  // (`active=true` by default) instead of pulling archived rows too.
+  const { loading, error, records, refetch } = useSceneAssetDefinitions({
+    renderMode: false,
+  });
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [status, setStatus] = useState<StatusFilter>("active");
   const [categoryFilter, setCategoryFilter] = useState<SceneAssetCategory | "all">("all");

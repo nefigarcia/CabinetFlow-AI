@@ -60,6 +60,12 @@ describe("SceneAssetDefinition — schema + helpers", () => {
     expect(round).toEqual(def);
   });
 
+  it("accepts an `active` boolean (used by the DB Asset Library)", () => {
+    const def: SceneAssetDefinition = { ...minimalDefinition(), active: false };
+    const parsed = sceneAssetDefinitionSchema.parse(def);
+    expect(parsed.active).toBe(false);
+  });
+
   it("rejects a definition missing required fields", () => {
     const bad = { ...minimalDefinition() } as Partial<SceneAssetDefinition>;
     delete bad.name;

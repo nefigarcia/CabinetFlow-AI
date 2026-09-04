@@ -16,10 +16,16 @@ import {
 // care whether definitions came from the code catalog or the DB —
 // they just consume `useSceneAssetsStore((s) => s.definitions)`.
 //
-// The store is seeded with `DEFAULT_SCENE_ASSET_CATALOG` at module
-// load; on API success we REPLACE the store with the DB list plus any
-// code-catalog entries whose slug isn't already covered by a DB row
-// (rollout fallback — safe to remove once every default is seeded).
+// Two modes:
+//   · `renderMode: true`  (default in the room workspace)
+//     Fetches ACTIVE + ARCHIVED for the caller's tenancy. Both go into
+//     the store so historic SceneAssetInstances referencing archived
+//     definitions still resolve. The CatalogPanel filters
+//     `active !== false` before rendering, so archived entries never
+//     appear in the placeable list.
+//   · `renderMode: false` (Asset Library management UI)
+//     Fetches only active — the admin overview controls its own
+//     archived/active toggle via the second-arg refetch.
 
 export interface DefinitionListParams {
   scope?: SceneAssetDefinitionScope | "all";
@@ -27,7 +33,14 @@ export interface DefinitionListParams {
   category?: string;
 }
 
-export function useSceneAssetDefinitions() {
+export interface UseSceneAssetDefinitionsOptions {
+  /** When true, the initial fetch requests `active=any` so the store
+   *  can hydrate archived-referenced instances. Default: true. */
+  renderMode?: boolean;
+}
+
+export function useSceneAssetDefinitions(options: UseSceneAssetDefinitionsOptions = {}) {
+  const renderMode = options.renderMode !== false;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [records, setRecords] = useState<SceneAssetDefinitionRecord[]>([]);
@@ -47,9 +60,12 @@ export function useSceneAssetDefinitions() {
           `/scene-asset-definitions${q ? `?${q}` : ""}`,
         );
         setRecords(list);
-        // Merge into the renderer store, projecting each record into the
-        // runtime SceneAssetDefinition shape.
-        const runtime = list.filter((r) => r.active).map(toSceneAssetDefinition);
+        // Merge into the renderer store, projecting each record into
+        // the runtime SceneAssetDefinition shape. Archived rows land
+        // in the store too — the CatalogPanel filters them out for
+        // the placement UI while the renderer keeps resolving them
+        // for existing instances.
+        const runtime = list.map(toSceneAssetDefinition);
         setDefinitions(runtime);
       } catch (e: unknown) {
         setError((e as Error).message);
@@ -60,10 +76,12 @@ export function useSceneAssetDefinitions() {
     [setDefinitions],
   );
 
-  // Fetch active org+system definitions on mount.
   useEffect(() => {
-    void refetch({ scope: "all", active: "true" });
-  }, [refetch]);
+    void refetch({
+      scope: "all",
+      active: renderMode ? "any" : "true",
+    });
+  }, [refetch, renderMode]);
 
   return { loading, error, records, refetch };
 }

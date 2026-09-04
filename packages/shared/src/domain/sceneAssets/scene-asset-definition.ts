@@ -142,6 +142,16 @@ export interface SceneAssetDefinition {
    */
   provenance?: SceneAssetProvenance;
 
+  /**
+   * Availability flag. `true` (or unset) → new placements allowed +
+   * catalog surfaces the entry. `false` → archived; the render path
+   * still resolves the definition so existing rooms keep working, but
+   * the catalog UI hides it and the server rejects new placements.
+   * Optional so the legacy static catalog (which has no archive
+   * concept) parses cleanly.
+   */
+  active?: boolean;
+
   metadata?: Record<string, unknown>;
 }
 
@@ -159,6 +169,7 @@ export const sceneAssetDefinitionSchema: z.ZodType<SceneAssetDefinition> = z.obj
   placement: sceneAssetPlacementSchema.optional(),
   collision: sceneAssetCollisionSchema.optional(),
   provenance: sceneAssetProvenanceSchema.optional(),
+  active: z.boolean().optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 
