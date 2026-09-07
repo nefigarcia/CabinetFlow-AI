@@ -194,3 +194,43 @@ describe("Tenancy — canWrite", () => {
     expect(canWriteSceneAssetDefinition(rec, { orgId: "org_b", isPlatformAdmin: false })).toBe(false);
   });
 });
+
+describe("Tenancy — adversarial defense in depth", () => {
+  // These tests document the invariants the API-route layer relies on
+  // to defeat forged request payloads. If any of them ever start
+  // passing where they should fail, an attacker could escalate scope
+  // or leak another org's data.
+
+  it("a non-admin cannot read another org's private asset even if they claim admin=false-but-orgId-matches nothing", () => {
+    const rec = makeRecord({ scope: "org", orgId: "org_a" });
+    expect(canReadSceneAssetDefinition(rec, { orgId: "org_b", isPlatformAdmin: false })).toBe(false);
+  });
+
+  it("changing scope to system on the target record still requires admin (upgrade attempt)", () => {
+    // Existing org-scoped record — a non-admin trying to convert to
+    // system by patching cannot succeed: canWrite is evaluated on the
+    // CURRENT record, and any attempt to promote requires admin to
+    // also pass on the SYSTEM-shaped target (defense at both ends).
+    const orgRec = makeRecord({ scope: "org", orgId: "org_a" });
+    expect(canWriteSceneAssetDefinition(orgRec, { orgId: "org_a", isPlatformAdmin: false })).toBe(true);
+    const systemRec = makeRecord({ scope: "system", orgId: null });
+    expect(canWriteSceneAssetDefinition(systemRec, { orgId: "org_a", isPlatformAdmin: false })).toBe(false);
+  });
+
+  it("assertScopeConsistent rejects impossible combos an attacker might forge", () => {
+    // A payload claiming scope="system" alongside an orgId — nonsense
+    // — must throw before any DB write.
+    expect(() => assertScopeConsistent("system", "org_a")).toThrow();
+    // Its mirror: scope="org" with no orgId is equally nonsensical.
+    expect(() => assertScopeConsistent("org", null)).toThrow();
+  });
+
+  it("archived SYSTEM records remain readable by admin for the render path (existing instances)", () => {
+    // Rendering an archived room instance must still resolve the
+    // definition — the RENDER resolver passes isPlatformAdmin=true (or
+    // an equivalent bypass) so archived items keep painting.
+    const rec = makeRecord({ scope: "system", orgId: null, active: false });
+    expect(canReadSceneAssetDefinition(rec, { orgId: "org_a", isPlatformAdmin: false })).toBe(false);
+    expect(canReadSceneAssetDefinition(rec, { orgId: "org_a", isPlatformAdmin: true })).toBe(true);
+  });
+});

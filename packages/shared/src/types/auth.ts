@@ -16,6 +16,13 @@ export interface AuthUser {
   lastName: string;
   role: UserRole;
   orgId: string;
+  /** True when the user is on the platform-admin allow-list. Server-
+   *  derived (via `isPlatformAdmin(ctx)`). The client uses this only to
+   *  decide whether to SURFACE admin controls; every SYSTEM-scoped
+   *  write is independently re-checked server-side, so a forged value
+   *  here cannot escalate privileges. Optional for backwards
+   *  compatibility with older auth payloads. */
+  isPlatformAdmin?: boolean;
 }
 
 export interface AuthOrg {

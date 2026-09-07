@@ -8,6 +8,8 @@ import {
 } from "@/lib/auth";
 import { parseBody, loginSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import { isPlatformAdmin } from "@/lib/scenePlatformAdmin";
+import type { UserRole } from "@woodcraft/shared";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -59,6 +61,10 @@ export async function POST(req: NextRequest) {
       lastName: user.lastName,
       role: user.role,
       orgId: user.orgId,
+      isPlatformAdmin: isPlatformAdmin({
+        role: user.role as UserRole,
+        email: user.email,
+      }),
     },
     org: user.org,
     accessToken,

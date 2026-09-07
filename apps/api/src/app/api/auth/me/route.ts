@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, ok } from "@/lib/errors";
+import { isPlatformAdmin } from "@/lib/scenePlatformAdmin";
+import type { UserRole } from "@woodcraft/shared";
 
 // Middleware verifies access token and sets x-user-id + x-org-id headers.
 export async function GET(req: NextRequest) {
@@ -32,5 +34,13 @@ export async function GET(req: NextRequest) {
 
   if (!user) return apiError("User not found", 404);
 
-  return ok({ user });
+  // Server-derived — the client uses it only to decide whether to
+  // surface admin controls. Every SYSTEM write path re-checks the same
+  // predicate independently.
+  const platformAdmin = isPlatformAdmin({
+    role: user.role as UserRole,
+    email: user.email,
+  });
+
+  return ok({ user: { ...user, isPlatformAdmin: platformAdmin } });
 }

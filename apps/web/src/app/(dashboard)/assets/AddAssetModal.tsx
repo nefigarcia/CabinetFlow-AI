@@ -6,9 +6,11 @@ import {
   SCENE_ASSET_CATEGORY_LABELS,
   type SceneAssetCategory,
   type SceneAssetDefinitionCreateInput,
+  type SceneAssetDefinitionScope,
 } from "@woodcraft/shared";
 import { createSceneAssetDefinitionMultipart } from "@/hooks/useSceneAssetDefinitions";
 import { probeGlbDimensionsMm } from "@/lib/scene/probeGlbDimensions";
+import { useAuthStore } from "@/store/auth";
 
 // Add Asset modal — the primary product entry point for the DB-backed
 // Asset Library.
@@ -28,6 +30,16 @@ interface Props {
 }
 
 export function AddAssetModal({ onClose, onCreated }: Props) {
+  // Client-side admin flag drives ONLY whether the Availability picker
+  // is visible. Server-side `isPlatformAdmin(ctx)` gates the actual
+  // SYSTEM write on the POST — a forged `isPlatformAdmin: true` in
+  // localStorage cannot escalate privileges.
+  const isPlatformAdmin = useAuthStore(
+    (s) => s.user?.isPlatformAdmin === true,
+  );
+  const [scope, setScope] = useState<SceneAssetDefinitionScope>(
+    isPlatformAdmin ? "system" : "org",
+  );
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<SceneAssetCategory>("furniture");
@@ -187,6 +199,10 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
         metadata,
         model: modelFile,
         thumbnail: thumbnailFile,
+        // Only send `scope` if admin — the server ignores it for
+        // non-admins anyway, but omitting it altogether keeps the
+        // request shape minimal for typical users.
+        scope: isPlatformAdmin ? scope : undefined,
       });
       if (uploadWarnings.length > 0) {
         setWarnings(uploadWarnings);
@@ -273,6 +289,30 @@ export function AddAssetModal({ onClose, onCreated }: Props) {
               </select>
             </Field>
           </section>
+
+          {/* Availability — platform admin only. Non-admin uploads are
+              always scoped to the caller's organization (server enforced). */}
+          {isPlatformAdmin && (
+            <section>
+              <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
+                Availability
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <ScopeOption
+                  active={scope === "system"}
+                  onClick={() => setScope("system")}
+                  title="CabinetFlow Library"
+                  hint="Available to every organization"
+                />
+                <ScopeOption
+                  active={scope === "org"}
+                  onClick={() => setScope("org")}
+                  title="My Organization"
+                  hint="Visible only to my organization"
+                />
+              </div>
+            </section>
+          )}
 
           {/* Dimensions */}
           <section>
@@ -500,6 +540,33 @@ function NumberInput({
         className="w-full bg-surface-100 border border-surface-300 rounded-md px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 tabular-nums"
       />
     </div>
+  );
+}
+
+function ScopeOption({
+  active,
+  onClick,
+  title,
+  hint,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-left rounded-md px-3 py-2 transition-colors"
+      style={{
+        background: active ? "rgba(200,133,42,0.10)" : "#1A1E26",
+        border: active ? "1px solid #c8852a" : "1px solid #2E3240",
+      }}
+    >
+      <p className="text-sm text-white">{title}</p>
+      <p className="text-[10px] text-gray-500 mt-0.5">{hint}</p>
+    </button>
   );
 }
 
