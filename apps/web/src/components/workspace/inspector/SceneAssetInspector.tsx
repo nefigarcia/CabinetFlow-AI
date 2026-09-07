@@ -23,9 +23,11 @@ import { useSceneAssets } from "@/hooks/useSceneAssets";
 import { useDebounce } from "@/lib/useDebounce";
 import { resolveSceneAssetUrl } from "@/lib/scene/resolveSceneAssetUrl";
 import {
+  getProbeStatus,
   getSceneAssetLoadStatus,
   subscribeSceneAssetLoadStatus,
 } from "@/lib/scene/sceneAssetLoadStatus";
+import { runDirectGlbProbe } from "@/lib/scene/directGlbProbe";
 import { SceneAssetSpatialValidation } from "./SceneAssetSpatialValidation";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -493,6 +495,11 @@ function DevModelStatusSection({ definition }: { definition: SceneAssetDefinitio
     () => getSceneAssetLoadStatus(url),
     () => getSceneAssetLoadStatus(url),
   );
+  const probe = useSyncExternalStore(
+    subscribeSceneAssetLoadStatus,
+    () => getProbeStatus(url),
+    () => getProbeStatus(url),
+  );
 
   const dims = definition.dimensionsMm;
 
@@ -532,34 +539,122 @@ function DevModelStatusSection({ definition }: { definition: SceneAssetDefinitio
       </div>
 
       {definition.model && (
-        <div className="mt-3 text-[11px]">
-          {status === null && (
-            <p className="text-gray-500">
-              ⏳ Not yet loaded — scroll the asset into view.
+        <div className="mt-3 text-[11px] space-y-3">
+          {/* useGLTF / error-boundary status */}
+          <div>
+            <p className="text-gray-500 uppercase tracking-wider text-[10px] mb-1">
+              useGLTF (render path)
             </p>
-          )}
-          {status?.kind === "loaded" && (
-            <div className="space-y-1">
-              <p className="text-green-400">✓ GLB loaded</p>
-              <p className="text-gray-400 font-mono">
-                meshes: {status.meshCount} · scale: {status.normalizationScale.toFixed(4)}
+            {status === null && (
+              <p className="text-gray-500">
+                ⏳ Not yet loaded — scroll the asset into view.
               </p>
-              <p className="text-gray-400 font-mono">
-                raw bbox (m):{" "}
-                {(status.rawBboxMeters.max.x - status.rawBboxMeters.min.x).toFixed(3)}{" "}
-                ×{" "}
-                {(status.rawBboxMeters.max.y - status.rawBboxMeters.min.y).toFixed(3)}{" "}
-                ×{" "}
-                {(status.rawBboxMeters.max.z - status.rawBboxMeters.min.z).toFixed(3)}
+            )}
+            {status?.kind === "loaded" && (
+              <div className="space-y-0.5">
+                <p className="text-green-400">✓ GLB loaded</p>
+                <p className="text-gray-400 font-mono">
+                  meshes: {status.meshCount} · scale:{" "}
+                  {status.normalizationScale.toFixed(4)}
+                </p>
+                <p className="text-gray-400 font-mono">
+                  raw bbox (m):{" "}
+                  {(status.rawBboxMeters.max.x - status.rawBboxMeters.min.x).toFixed(3)}{" "}
+                  ×{" "}
+                  {(status.rawBboxMeters.max.y - status.rawBboxMeters.min.y).toFixed(3)}{" "}
+                  ×{" "}
+                  {(status.rawBboxMeters.max.z - status.rawBboxMeters.min.z).toFixed(3)}
+                </p>
+              </div>
+            )}
+            {status?.kind === "failed" && (
+              <div className="space-y-0.5">
+                <p className="text-red-400">⚠ Primitive fallback — load failed</p>
+                <p className="text-gray-400 font-mono">
+                  {status.errorName ?? "Error"}: {status.message}
+                </p>
+                {status.stack && (
+                  <details className="text-gray-500 font-mono">
+                    <summary className="cursor-pointer">stack</summary>
+                    <pre className="text-[10px] whitespace-pre-wrap">
+                      {status.stack}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Direct GLTFLoader probe — bypasses useGLTF/Suspense so we
+              can see the ground-truth loader/parser outcome. */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-gray-500 uppercase tracking-wider text-[10px]">
+                Direct GLTFLoader (bypass useGLTF)
               </p>
+              <button
+                onClick={() => {
+                  if (url) void runDirectGlbProbe(url);
+                }}
+                disabled={!url || probe.kind === "running"}
+                className="text-[10px] px-2 py-0.5 rounded-md bg-surface-100 hover:bg-surface-200 disabled:opacity-40 text-gray-200 transition-colors"
+              >
+                {probe.kind === "running" ? "probing…" : "Probe directly"}
+              </button>
             </div>
-          )}
-          {status?.kind === "failed" && (
-            <div className="space-y-1">
-              <p className="text-red-400">⚠ Primitive fallback — GLB load failed</p>
-              <p className="text-gray-400 font-mono">reason: {status.message}</p>
-            </div>
-          )}
+            {probe.kind === "idle" && (
+              <p className="text-gray-600">Click to run a plain THREE.GLTFLoader against this URL.</p>
+            )}
+            {probe.kind === "running" && (
+              <p className="text-gray-400 font-mono">
+                loading…
+                {probe.totalBytes
+                  ? ` ${probe.loadedBytes ?? 0}/${probe.totalBytes} bytes`
+                  : probe.loadedBytes
+                    ? ` ${probe.loadedBytes} bytes`
+                    : ""}
+              </p>
+            )}
+            {probe.kind === "succeeded" && (
+              <div className="space-y-0.5">
+                <p className="text-green-400">✓ Direct load OK</p>
+                <p className="text-gray-400 font-mono">
+                  meshes: {probe.meshCount} · scene.children:{" "}
+                  {probe.sceneChildren}
+                </p>
+                <p className="text-gray-400 font-mono">
+                  raw bbox (m):{" "}
+                  {(probe.rawBboxMeters.max.x - probe.rawBboxMeters.min.x).toFixed(3)}{" "}
+                  ×{" "}
+                  {(probe.rawBboxMeters.max.y - probe.rawBboxMeters.min.y).toFixed(3)}{" "}
+                  ×{" "}
+                  {(probe.rawBboxMeters.max.z - probe.rawBboxMeters.min.z).toFixed(3)}
+                </p>
+                <p className="text-gray-400 font-mono">
+                  extensionsUsed: [{probe.extensionsUsed.join(", ") || "—"}]
+                </p>
+                <p className="text-gray-400 font-mono">
+                  extensionsRequired: [{probe.extensionsRequired.join(", ") || "—"}]
+                </p>
+              </div>
+            )}
+            {probe.kind === "failed" && (
+              <div className="space-y-0.5">
+                <p className="text-red-400">✗ Direct load failed</p>
+                <p className="text-gray-400 font-mono">
+                  {probe.errorName ?? "Error"}: {probe.message}
+                </p>
+                {probe.stack && (
+                  <details className="text-gray-500 font-mono">
+                    <summary className="cursor-pointer">stack</summary>
+                    <pre className="text-[10px] whitespace-pre-wrap">
+                      {probe.stack}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

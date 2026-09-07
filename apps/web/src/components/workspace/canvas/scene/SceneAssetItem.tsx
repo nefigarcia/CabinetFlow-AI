@@ -189,11 +189,16 @@ class SceneAssetErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error): void {
+    // Log the FULL error object (name + message + stack) so THREE.js's
+    // wrapped errors ("Could not load … Failed to fetch", HttpError,
+    // SyntaxError from a bad JSON chunk, etc.) can be distinguished in
+    // the browser console. Passing the Error object itself to console
+    // preserves the stack in devtools.
     console.warn(
-      `[SceneAssetItem] GLB load failed for ${this.props.url}, using primitive fallback:`,
-      error.message,
+      `[SceneAssetItem] GLB load failed for ${this.props.url}. Full error:`,
+      error,
     );
-    recordSceneAssetFailed(this.props.url, error.message);
+    recordSceneAssetFailed(this.props.url, error);
   }
 
   render() {

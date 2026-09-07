@@ -94,7 +94,9 @@ export function SceneAssetLoader({ url, definition }: Props) {
 
   // Record success into the dev-only load-status registry so the
   // inspector can distinguish "real GLB rendered" from "primitive
-  // fallback swapped in by the error boundary".
+  // fallback swapped in by the error boundary". The registry is
+  // idempotent — repeated identical writes are no-ops and never
+  // notify subscribers.
   useEffect(() => {
     recordSceneAssetLoaded({
       url,
@@ -102,6 +104,12 @@ export function SceneAssetLoader({ url, definition }: Props) {
       rawBboxMeters: rawBbox,
       normalizationScale: scale,
     });
+    if (process.env.NODE_ENV !== "production") {
+      // One-shot dev log per URL change — enough to confirm the exact
+      // string useGLTF received, without spamming the console every
+      // render.
+      console.log("[SceneAssetLoader] loaded", url, { meshCount });
+    }
   }, [url, meshCount, rawBbox, scale]);
 
   // Free per-instance resources on unmount. drei's cache owns the parsed
