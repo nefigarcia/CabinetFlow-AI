@@ -10,9 +10,7 @@ import {
 //
 // Visible only when a Scene Asset is currently selected. Positioned
 // separately from `CanvasToolbar` (bottom-left) so it never overlaps
-// the cabinet-focused Fit / Snapshot controls. Two buttons: Move /
-// Rotate — scale is intentionally never a mode (user-facing scale
-// stays at identity per Slice 6 Scale Policy).
+// the cabinet-focused Fit / Snapshot controls.
 
 const MODES: readonly {
   id: SceneAssetTransformMode;
@@ -22,6 +20,7 @@ const MODES: readonly {
 }[] = [
   { id: "translate", label: "Move", icon: "↔", hint: "Move (drag position)" },
   { id: "rotate", label: "Rotate", icon: "↻", hint: "Rotate (drag rotation)" },
+  { id: "scale", label: "Scale", icon: "⇱", hint: "Scale (drag to resize)" },
 ];
 
 export function SceneAssetToolbar() {

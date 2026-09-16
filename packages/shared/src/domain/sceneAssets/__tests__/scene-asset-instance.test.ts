@@ -116,12 +116,13 @@ describe("SceneAssetInstance create input", () => {
       assetDefinitionId: "sofa-modern-01",
       positionMm: { x: 0, y: 0, z: 0 },
     };
-    // @ts-expect-error scale is not user-editable in MVP
+    // Scale is a permitted optional field on the create input — the
+    // server bounds-checks it via `scaleVec3Schema` before persistence.
     shape.scale = { x: 2, y: 2, z: 2 };
   });
 
   describe("withInstanceDefaults", () => {
-    it("fills identity rotation and visible=true", () => {
+    it("fills identity rotation, identity scale, and visible=true", () => {
       const input: SceneAssetInstanceCreateInput = {
         assetDefinitionId: "sofa-modern-01",
         positionMm: { x: 100, y: 0, z: 100 },
@@ -130,6 +131,7 @@ describe("SceneAssetInstance create input", () => {
         assetDefinitionId: "sofa-modern-01",
         positionMm: { x: 100, y: 0, z: 100 },
         rotationDeg: IDENTITY_ROTATION,
+        scale: { x: 1, y: 1, z: 1 },
         visible: true,
         placement: { mode: "free" },
         materialOverrides: undefined,
@@ -180,15 +182,14 @@ describe("SceneAssetInstance update input", () => {
     ).toThrow();
   });
 
-  it("strips scale from update payloads (identity only for MVP)", () => {
-    // Zod `.parse()` accepts unknown at compile time, so a runtime object
-    // with an extra `scale` field compiles fine. The important guarantee
-    // is that Zod's declared schema DOESN'T include scale, so the parsed
-    // result never carries it.
-    const parsed = sceneAssetInstanceUpdateSchema.parse({
-      positionMm: { x: 1, y: 2, z: 3 },
-      scale: { x: 5, y: 5, z: 5 },
-    } as unknown) as unknown as Record<string, unknown>;
-    expect(parsed).not.toHaveProperty("scale");
+  it("accepts a valid in-bounds scale on the update payload", () => {
+    // Detailed bounds coverage lives in `scale-persistence.test.ts` —
+    // this test just guards the shape.
+    expect(() =>
+      sceneAssetInstanceUpdateSchema.parse({
+        positionMm: { x: 1, y: 2, z: 3 },
+        scale: { x: 0.5, y: 0.5, z: 0.5 },
+      }),
+    ).not.toThrow();
   });
 });

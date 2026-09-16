@@ -5,6 +5,7 @@ import { parseBody, updateCabinetSchema } from "@/lib/validate";
 import { cadService } from "@/lib/services";
 import { syncParts } from "@/lib/parts";
 import { apiError, ok } from "@/lib/errors";
+import { doesParameterChangeRequireCadRecompute } from "@woodcraft/shared";
 
 type Params = { params: { id: string; roomId: string; cabinetId: string } };
 
@@ -61,12 +62,25 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   });
 
   // ── Constraint propagation ──────────────────────────────────────────────────
-  // Any change to dimensions or parameters requires a full geometry recompute.
-  const dimensionsChanged =
+  // A CAD recompute is expensive (external service call + parts resync)
+  // and is only justified when the change affects MANUFACTURING geometry.
+  // Explicit rules:
+  //   · Width / height / depth change → recompute (dimensions drive parts).
+  //   · `parameters` change → recompute ONLY when a manufacturing-affecting
+  //     parameter changed. Placement-only keys (currently `wallPlacement`)
+  //     are classified by `doesParameterChangeRequireCadRecompute` and do
+  //     NOT trigger recompute — moving a cabinet along a wall shouldn't
+  //     re-cut it. Unknown parameter keys default to "recompute" (safe:
+  //     the worst case is an extra CAD call, not a missed one).
+  const dimensionOnlyChange =
     parsed.data.width !== undefined ||
     parsed.data.height !== undefined ||
-    parsed.data.depth !== undefined ||
-    parsed.data.parameters !== undefined;
+    parsed.data.depth !== undefined;
+  const manufacturingParameterChanged = doesParameterChangeRequireCadRecompute(
+    existing.parameters as Record<string, unknown>,
+    parsed.data.parameters,
+  );
+  const dimensionsChanged = dimensionOnlyChange || manufacturingParameterChanged;
 
   let parts = existing.parts;
   const cadWarnings: string[] = [];

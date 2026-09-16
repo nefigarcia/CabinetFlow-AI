@@ -1,5 +1,6 @@
 import type { SceneAssetDefinition } from "./scene-asset-definition";
 import type { SceneAssetInstance, Vec3 } from "./scene-asset-instance";
+import { IDENTITY_SCALE } from "./scene-asset-instance";
 
 // Axis-Aligned Bounding Box in DOMAIN space (millimeters).
 //
@@ -61,13 +62,18 @@ function rotatePoint(p: Vec3Mm, rotationDeg: Vec3Mm): Vec3Mm {
 }
 
 /**
- * Corners of a Scene Asset in local (bottom-center-anchored) space. Order
+ * Corners of a Scene Asset in local (bottom-center-anchored) space,
+ * PRE-SCALED per-axis so the caller can rotate + translate a single
+ * point cloud that already reflects the instance's actual size. Order
  * is deterministic so tests can assert individual corners.
  */
-function localCorners(dimensions: SceneAssetDefinition["dimensionsMm"]): Vec3Mm[] {
-  const halfW = dimensions.widthMm / 2;
-  const halfD = dimensions.depthMm / 2;
-  const h = dimensions.heightMm;
+function localCorners(
+  dimensions: SceneAssetDefinition["dimensionsMm"],
+  scale: Vec3,
+): Vec3Mm[] {
+  const halfW = (dimensions.widthMm * scale.x) / 2;
+  const halfD = (dimensions.depthMm * scale.z) / 2;
+  const h = dimensions.heightMm * scale.y;
   return [
     { x: -halfW, y: 0, z: -halfD }, // 0: front-left-bottom (relative)
     { x: +halfW, y: 0, z: -halfD },
@@ -103,19 +109,25 @@ function boundsOfPoints(points: readonly Vec3Mm[]): AABB {
 
 /**
  * Returns the world-space AABB of a Scene Asset given its catalog
- * dimensions, instance position, and instance rotation. Accounts for
- * full XYZ Euler rotation.
+ * dimensions, instance transform, and per-axis scale multipliers.
+ * Accounts for full XYZ Euler rotation.
  *
- * The AABB is a conservative volume: it wraps every rotated corner of the
- * catalog envelope, so it may report more space occupied than the model
- * actually fills. That's the correct trade-off for a broad-phase
+ * `instance.scale` is optional so legacy serialized rows that never
+ * carried a scale value default to identity (matching the Prisma
+ * column default of 1). This keeps the collision path safe for the
+ * back-compat case without special-casing it at every call site.
+ *
+ * The AABB is a conservative volume: it wraps every rotated corner of
+ * the SCALED envelope, so it may report more space occupied than the
+ * model actually fills. That's the correct trade-off for a broad-phase
  * collision system.
  */
 export function getSceneAssetAabb(
-  instance: Pick<SceneAssetInstance, "positionMm" | "rotationDeg">,
+  instance: Pick<SceneAssetInstance, "positionMm" | "rotationDeg"> & { scale?: Vec3 },
   definition: Pick<SceneAssetDefinition, "dimensionsMm">,
 ): AABB {
-  const local = localCorners(definition.dimensionsMm);
+  const scale = instance.scale ?? IDENTITY_SCALE;
+  const local = localCorners(definition.dimensionsMm, scale);
   const rotated = local.map((p) => rotatePoint(p, instance.rotationDeg));
   const translated = rotated.map((p) => ({
     x: p.x + instance.positionMm.x,
@@ -126,16 +138,21 @@ export function getSceneAssetAabb(
 }
 
 /**
- * Returns the world-space CLEARANCE AABB — the catalog envelope expanded
- * by the definition's `collision.clearance*Mm` values, then rotated /
- * translated into world space. Expansion is applied in local coordinates,
- * so "front clearance" is always relative to the asset's facing direction
- * (+Z in local), not the world +Z axis.
+ * Returns the world-space CLEARANCE AABB — the SCALED catalog envelope
+ * expanded by the definition's `collision.clearance*Mm` values, then
+ * rotated / translated into world space. Expansion is applied in local
+ * coordinates, so "front clearance" is always relative to the asset's
+ * facing direction (+Z in local), not the world +Z axis.
+ *
+ * Clearance values are treated as ABSOLUTE millimeters (not scaled). A
+ * fridge stretched visually still needs the same authored door-swing
+ * clearance from the manufacturer spec — scaling clearance would silently
+ * shrink safety margins and is intentionally NOT done here.
  *
  * Returns the plain AABB when collision metadata is disabled or absent.
  */
 export function getSceneAssetClearanceAabb(
-  instance: Pick<SceneAssetInstance, "positionMm" | "rotationDeg">,
+  instance: Pick<SceneAssetInstance, "positionMm" | "rotationDeg"> & { scale?: Vec3 },
   definition: Pick<SceneAssetDefinition, "dimensionsMm" | "collision">,
 ): AABB {
   const coll = definition.collision;
@@ -143,9 +160,10 @@ export function getSceneAssetClearanceAabb(
     return getSceneAssetAabb(instance, definition);
   }
 
-  const halfW = definition.dimensionsMm.widthMm / 2;
-  const halfD = definition.dimensionsMm.depthMm / 2;
-  const h = definition.dimensionsMm.heightMm;
+  const scale = instance.scale ?? IDENTITY_SCALE;
+  const halfW = (definition.dimensionsMm.widthMm * scale.x) / 2;
+  const halfD = (definition.dimensionsMm.depthMm * scale.z) / 2;
+  const h = definition.dimensionsMm.heightMm * scale.y;
 
   // Local frame convention: +X = right, -X = left, +Z = front, -Z = back
   const cLeft = coll.clearanceLeftMm ?? 0;

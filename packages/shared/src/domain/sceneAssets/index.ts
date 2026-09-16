@@ -109,13 +109,22 @@ export type {
 export {
   IDENTITY_ROTATION,
   IDENTITY_SCALE,
+  MAX_INSTANCE_SCALE,
+  MIN_INSTANCE_SCALE,
   SCENE_ASSET_INSTANCE_SCHEMA_VERSION,
   sceneAssetInstanceCreateSchema,
   sceneAssetInstanceSchema,
   sceneAssetInstanceUpdateSchema,
+  scaleVec3Schema,
   vec3Schema,
   withInstanceDefaults,
 } from "./scene-asset-instance";
+
+export type { EffectiveDimensionsMm } from "./effective-dimensions";
+export {
+  getSceneAssetEffectiveDimensions,
+  isInstanceScaled,
+} from "./effective-dimensions";
 
 export type { SceneAssetCatalog } from "./scene-asset-catalog";
 export { createSceneAssetCatalog } from "./scene-asset-catalog";

@@ -83,17 +83,38 @@ export const sceneAssetInstanceSchema: z.ZodType<SceneAssetInstance> = z.object(
   updatedAt: z.string(),
 });
 
+/** Safe scale bounds (dimensionless multipliers). Anything outside this
+ *  range is either meaningless (0, negative) or destabilizes rendering /
+ *  collision math (astronomically large). Enforced by the shared schema
+ *  and re-validated on the server so a forged client payload can't slip
+ *  through. */
+export const MIN_INSTANCE_SCALE = 0.05;
+export const MAX_INSTANCE_SCALE = 20;
+
+const scaleAxisSchema = z
+  .number()
+  .refine((v) => Number.isFinite(v), { message: "scale must be finite" })
+  .refine((v) => v >= MIN_INSTANCE_SCALE && v <= MAX_INSTANCE_SCALE, {
+    message: `scale must be between ${MIN_INSTANCE_SCALE} and ${MAX_INSTANCE_SCALE}`,
+  });
+
+export const scaleVec3Schema: z.ZodType<Vec3> = z.object({
+  x: scaleAxisSchema,
+  y: scaleAxisSchema,
+  z: scaleAxisSchema,
+});
+
 /**
  * Input shape for creating a new instance. `orgId` and `roomId` are
  * stripped — the server derives them from URL params + authenticated
- * context. `id` and timestamps come from the database. Scale is also
- * omitted from the create input for MVP: instances always start at
- * identity scale (the UI does not expose arbitrary scaling yet).
+ * context. `id` and timestamps come from the database. Scale is
+ * optional; if omitted the server stamps identity scale.
  */
 export interface SceneAssetInstanceCreateInput {
   assetDefinitionId: string;
   positionMm: Vec3;
   rotationDeg?: Vec3;
+  scale?: Vec3;
   visible?: boolean;
   placement?: SceneAssetInstancePlacement;
   materialOverrides?: Record<string, string>;
@@ -103,17 +124,19 @@ export const sceneAssetInstanceCreateSchema: z.ZodType<SceneAssetInstanceCreateI
   assetDefinitionId: z.string().min(1),
   positionMm: vec3Schema,
   rotationDeg: vec3Schema.optional(),
+  scale: scaleVec3Schema.optional(),
   visible: z.boolean().optional(),
   placement: sceneAssetInstancePlacementSchema.optional(),
   materialOverrides: z.record(z.string()).optional(),
 });
 
-/** Partial update — every field is optional. Scale is intentionally NOT
- *  updatable through the normal API — instances stay at identity scale for
- *  MVP (see Slice 6 Scale Policy). */
+/** Partial update — every field is optional. Scale is allowed and is
+ *  bounded by `[MIN_INSTANCE_SCALE, MAX_INSTANCE_SCALE]` on each axis;
+ *  zero / negative / NaN / Infinity are rejected before persistence. */
 export interface SceneAssetInstanceUpdateInput {
   positionMm?: Vec3;
   rotationDeg?: Vec3;
+  scale?: Vec3;
   visible?: boolean;
   placement?: SceneAssetInstancePlacement;
   materialOverrides?: Record<string, string>;
@@ -122,6 +145,7 @@ export interface SceneAssetInstanceUpdateInput {
 export const sceneAssetInstanceUpdateSchema: z.ZodType<SceneAssetInstanceUpdateInput> = z.object({
   positionMm: vec3Schema.optional(),
   rotationDeg: vec3Schema.optional(),
+  scale: scaleVec3Schema.optional(),
   visible: z.boolean().optional(),
   placement: sceneAssetInstancePlacementSchema.optional(),
   materialOverrides: z.record(z.string()).optional(),
@@ -131,20 +155,19 @@ export const sceneAssetInstanceUpdateSchema: z.ZodType<SceneAssetInstanceUpdateI
 export const IDENTITY_ROTATION: Vec3 = { x: 0, y: 0, z: 0 };
 export const IDENTITY_SCALE: Vec3 = { x: 1, y: 1, z: 1 };
 
-/** A create input with all defaults resolved — output of `withInstanceDefaults`.
- *  Scale is fixed at identity server-side (see Slice 6 Scale Policy); it is
- *  not part of this shape or the create input. */
+/** A create input with all defaults resolved — output of `withInstanceDefaults`. */
 export interface NormalizedInstanceCreate {
   assetDefinitionId: string;
   positionMm: Vec3;
   rotationDeg: Vec3;
+  scale: Vec3;
   visible: boolean;
   placement: SceneAssetInstancePlacement;
   materialOverrides?: Record<string, string>;
 }
 
-/** Fills in identity rotation, `visible=true`, and `placement.mode="free"`
- *  for a create input that omits them. */
+/** Fills in identity rotation/scale, `visible=true`, and
+ *  `placement.mode="free"` for a create input that omits them. */
 export function withInstanceDefaults(
   input: SceneAssetInstanceCreateInput,
 ): NormalizedInstanceCreate {
@@ -152,6 +175,7 @@ export function withInstanceDefaults(
     assetDefinitionId: input.assetDefinitionId,
     positionMm: input.positionMm,
     rotationDeg: input.rotationDeg ?? IDENTITY_ROTATION,
+    scale: input.scale ?? IDENTITY_SCALE,
     visible: input.visible ?? true,
     placement: input.placement ?? DEFAULT_INSTANCE_PLACEMENT,
     materialOverrides: input.materialOverrides,

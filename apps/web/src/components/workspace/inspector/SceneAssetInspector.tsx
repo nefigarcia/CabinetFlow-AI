@@ -5,9 +5,14 @@ import {
   DEFAULT_DUPLICATE_OFFSET_MM_X,
   duplicateSceneAssetInstance,
   getRoomArchitecture,
+  getSceneAssetEffectiveDimensions,
   getWallFrame,
   hasModel,
+  IDENTITY_SCALE,
+  isInstanceScaled,
   isWallAttached,
+  MAX_INSTANCE_SCALE,
+  MIN_INSTANCE_SCALE,
   resolveWallAttachedSceneAssetTransform,
   SCENE_ASSET_CATEGORY_LABELS,
   worldToWallLocal,
@@ -62,6 +67,13 @@ function sanitizeNumber(raw: number, fallback: number): number {
   return Number.isFinite(raw) ? raw : fallback;
 }
 
+/** Clamps a per-axis scale multiplier to the shared safe range so the
+ *  server-side `scaleVec3Schema` bounds check always succeeds. */
+function clampScaleAxis(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return Math.max(MIN_INSTANCE_SCALE, Math.min(MAX_INSTANCE_SCALE, v));
+}
+
 export function SceneAssetInspector({ projectId, instance, definition }: Props) {
   const updateInstance = useSceneAssetsStore((s) => s.updateInstance);
   const { create, save, remove, saving } = useSceneAssets(projectId);
@@ -83,6 +95,11 @@ export function SceneAssetInspector({ projectId, instance, definition }: Props) 
   );
 
   const [error, setError] = useState<string | null>(null);
+  // Lock proportions is a client-only preference that gates whether a
+  // per-axis dimension edit propagates to all three scale axes uniformly.
+  // Default ON — matches the spec and the ergonomic that a user usually
+  // wants to resize the whole asset, not squish it.
+  const [lockProportions, setLockProportions] = useState(true);
 
   // One debounced saver per instance-id, so switching to a different
   // instance mid-typing doesn't accidentally send the previous edit against
@@ -119,6 +136,70 @@ export function SceneAssetInspector({ projectId, instance, definition }: Props) 
     },
     [instance.id, instance.rotationDeg, updateInstance, debouncedSave],
   );
+
+  // ── Size / scale editors ─────────────────────────────────────────────
+  //
+  // The user thinks in millimeters, but the persistence layer stores
+  // scale multipliers (`instance.scale.{x,y,z}`). We treat the SIZE
+  // inputs as authoritative and derive scale = enteredMm /
+  // definition.dimensionsMm on submit. When "Lock proportions" is on,
+  // editing any axis applies its ratio uniformly to all three axes so
+  // the asset's aspect stays intact — same behaviour a user expects
+  // from a Photoshop free-transform with shift held.
+  //
+  // Optimistic local update + debounced save mirrors the position /
+  // rotation flow. `clampScaleAxis` guarantees the value that reaches
+  // the server is inside [MIN_INSTANCE_SCALE, MAX_INSTANCE_SCALE], so
+  // the shared Zod schema (which enforces the same bounds) always
+  // succeeds on the wire.
+
+  const commitScale = useCallback(
+    (nextScale: Vec3) => {
+      const patch = {
+        scale: {
+          x: clampScaleAxis(nextScale.x),
+          y: clampScaleAxis(nextScale.y),
+          z: clampScaleAxis(nextScale.z),
+        },
+      };
+      updateInstance(instance.id, patch);
+      debouncedSave(instance.id, patch);
+    },
+    [instance.id, updateInstance, debouncedSave],
+  );
+
+  const setSizeFieldMm = useCallback(
+    (axis: "x" | "y" | "z") => (nextMm: number) => {
+      if (!definition) return;
+      const catalogMm =
+        axis === "x"
+          ? definition.dimensionsMm.widthMm
+          : axis === "y"
+            ? definition.dimensionsMm.heightMm
+            : definition.dimensionsMm.depthMm;
+      if (catalogMm <= 0) return; // guard against corrupt catalog data
+      const nextAxisScale = sanitizeNumber(nextMm / catalogMm, 1);
+      if (lockProportions) {
+        // Apply the same ratio to all three axes.
+        commitScale({ x: nextAxisScale, y: nextAxisScale, z: nextAxisScale });
+      } else {
+        commitScale({ ...instance.scale, [axis]: nextAxisScale });
+      }
+    },
+    [definition, instance.scale, lockProportions, commitScale],
+  );
+
+  const setScalePercent = useCallback(
+    (percent: number) => {
+      const nextUniform = sanitizeNumber(percent / 100, 1);
+      commitScale({ x: nextUniform, y: nextUniform, z: nextUniform });
+    },
+    [commitScale],
+  );
+
+  const resetSizeToCatalog = useCallback(() => {
+    commitScale(IDENTITY_SCALE);
+  }, [commitScale]);
 
   // ── Wall attachment helpers ────────────────────────────────────────────
   //
@@ -291,19 +372,21 @@ export function SceneAssetInspector({ projectId, instance, definition }: Props) 
       )}
 
       <div className="flex-1 min-h-0 overflow-auto p-4 space-y-5">
-        {/* Dimensions — readonly */}
-        {dims && (
-          <section>
-            <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
-              Dimensions
-              <span className="ml-1 text-gray-600 normal-case">(from catalog)</span>
-            </p>
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <ReadonlyStat label="W" value={`${dims.widthMm} mm`} />
-              <ReadonlyStat label="H" value={`${dims.heightMm} mm`} />
-              <ReadonlyStat label="D" value={`${dims.depthMm} mm`} />
-            </div>
-          </section>
+        {/* Size — editable. Persists as per-axis scale multipliers under
+            the hood; the inputs speak millimeters because that's what
+            the user thinks in. See `commitScale` / `setSizeFieldMm`. */}
+        {definition && dims && (
+          <SizeSection
+            definition={definition}
+            instance={instance}
+            lockProportions={lockProportions}
+            onLockProportionsChange={setLockProportions}
+            onWidthChange={setSizeFieldMm("x")}
+            onHeightChange={setSizeFieldMm("y")}
+            onDepthChange={setSizeFieldMm("z")}
+            onPercentChange={setScalePercent}
+            onReset={resetSizeToCatalog}
+          />
         )}
 
         {/* Model status — dev-only. Tells the user whether the on-screen
@@ -411,6 +494,134 @@ function ReadonlyStat({ label, value }: { label: string; value: string }) {
       <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
       <p className="text-white tabular-nums">{value}</p>
     </div>
+  );
+}
+
+/** SIZE — user-facing editor for `instance.scale`. Inputs are in mm
+ *  because that's the mental model users have (catalogs are labelled
+ *  in mm); the underlying persistence is a per-axis scale multiplier.
+ *  Also surfaces a "Resized from manufacturer dimensions" warning
+ *  whenever a manufacturer / SKU is registered on the definition and
+ *  the current instance is materially scaled from identity — useful
+ *  when a real fridge with a real model number is stretched to fit an
+ *  opening. */
+function SizeSection({
+  definition,
+  instance,
+  lockProportions,
+  onLockProportionsChange,
+  onWidthChange,
+  onHeightChange,
+  onDepthChange,
+  onPercentChange,
+  onReset,
+}: {
+  definition: SceneAssetDefinition;
+  instance: SceneAssetInstance;
+  lockProportions: boolean;
+  onLockProportionsChange: (v: boolean) => void;
+  onWidthChange: (mm: number) => void;
+  onHeightChange: (mm: number) => void;
+  onDepthChange: (mm: number) => void;
+  onPercentChange: (pct: number) => void;
+  onReset: () => void;
+}) {
+  const catalog = definition.dimensionsMm;
+  const effective = getSceneAssetEffectiveDimensions(definition, instance);
+  // Uniform-scale % readout. Non-uniform scale (lock off) shows the X
+  // axis as the representative value, matching most 3D editors.
+  const uniformPct = Math.round(instance.scale.x * 100);
+  const scaled = isInstanceScaled(instance);
+  const hasManufacturerId =
+    Boolean(definition.manufacturer) || Boolean(definition.sku);
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-gray-400 text-xs uppercase tracking-wider">
+          Size
+          <span className="ml-1 text-gray-600 normal-case">(mm)</span>
+        </p>
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!scaled}
+          className="text-[10px] text-gray-500 hover:text-white disabled:opacity-40 transition-colors"
+          title="Reset to catalog size"
+        >
+          reset
+        </button>
+      </div>
+      <div className="space-y-2">
+        <NumberInput
+          label="Width"
+          unit="mm"
+          value={Math.round(effective.widthMm)}
+          onChange={onWidthChange}
+        />
+        <NumberInput
+          label="Height"
+          unit="mm"
+          value={Math.round(effective.heightMm)}
+          onChange={onHeightChange}
+        />
+        <NumberInput
+          label="Depth"
+          unit="mm"
+          value={Math.round(effective.depthMm)}
+          onChange={onDepthChange}
+        />
+      </div>
+
+      <label className="flex items-center gap-2 mt-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={lockProportions}
+          onChange={(e) => onLockProportionsChange(e.target.checked)}
+          className="accent-brand-500"
+        />
+        <span className="text-white text-xs">Lock proportions</span>
+      </label>
+
+      <div className="mt-3">
+        <NumberInput
+          label="Scale"
+          unit="%"
+          value={uniformPct}
+          onChange={onPercentChange}
+        />
+      </div>
+
+      {/* Catalog / current readout — subtle, tabular. Keeps the user
+          oriented even when they've scaled far from the catalog size. */}
+      <div className="mt-3 text-[10px] text-gray-600 tabular-nums leading-tight">
+        <p>
+          Catalog size: {catalog.widthMm} × {catalog.heightMm} × {catalog.depthMm} mm
+        </p>
+        <p>
+          Current size: {Math.round(effective.widthMm)} ×{" "}
+          {Math.round(effective.heightMm)} × {Math.round(effective.depthMm)} mm
+        </p>
+      </div>
+
+      {/* Warning only — do not block placement. Manufacturer-tagged
+          assets carry an implicit contract with the physical world
+          (fridges have to fit in real openings), so scaling them is a
+          data-quality smell worth flagging. */}
+      {scaled && hasManufacturerId && (
+        <div
+          className="mt-3 rounded-md px-2 py-1.5 text-[10px]"
+          style={{
+            background: "rgba(200,133,42,0.10)",
+            border: "1px solid #6a5828",
+            color: "#c8852a",
+          }}
+        >
+          Resized from manufacturer dimensions — verify the real product
+          still fits.
+        </div>
+      )}
+    </section>
   );
 }
 

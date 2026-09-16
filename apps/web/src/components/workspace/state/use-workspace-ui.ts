@@ -18,9 +18,10 @@ export type InspectorTab =
   | "sceneAsset"
   | "architecture";
 export type RenderQuality = "performance" | "realistic";
-/** Scene Asset TransformControls mode. Scale is intentionally omitted —
- *  user-facing scale stays at identity in MVP (see Slice 6 Scale Policy). */
-export type SceneAssetTransformMode = "translate" | "rotate";
+/** Scene Asset TransformControls mode. Scale drags the on-canvas gizmo
+ *  handles to grow/shrink the instance; the commit path writes new
+ *  per-axis multipliers into `SceneAssetInstance.scale`. */
+export type SceneAssetTransformMode = "translate" | "rotate" | "scale";
 /** Which architectural view is active for the Rooms workspace: pure
  *  cabinet/asset editing, or an architecture-editing mode with wall/
  *  opening selection + overlays. */

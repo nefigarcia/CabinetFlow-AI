@@ -5,6 +5,8 @@ import { TransformControls } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
+  MAX_INSTANCE_SCALE,
+  MIN_INSTANCE_SCALE,
   metersToMm,
   radiansToDegrees,
   type SceneAssetInstance,
@@ -20,14 +22,17 @@ import { useWorkspaceUiStore } from "../../state/use-workspace-ui";
 // deselected). Attaches to the item's `<group>` target so the gizmo drags
 // the entire asset, not individual child meshes.
 //
-// Behavior per Slice 7:
-//   · Modes: translate / rotate (scale intentionally NOT exposed — UI
-//     keeps user-facing scale at identity per Slice 6 Scale Policy).
+// Behavior:
+//   · Modes: translate / rotate / scale. In scale mode TransformControls
+//     mutates `target.scale`; the commit path reads that back and
+//     writes new per-axis multipliers into `SceneAssetInstance.scale`.
 //   · OrbitControls disabled during drag so the camera doesn't fight the
 //     gizmo. Restored on drag end.
 //   · Local transform updates continuously during drag (Three.js applies
 //     the delta directly to the target group).
 //   · ONE `PATCH scene-assets/:id` fires on drag end — never per frame.
+//   · Scale is clamped to `[MIN_INSTANCE_SCALE, MAX_INSTANCE_SCALE]`
+//     before commit so an over-drag can't fail the server bounds check.
 //   · If PATCH fails, we log; the local optimistic value stays visible.
 //     The inspector's own error path (Slice 6) surfaces the failure text.
 
@@ -37,11 +42,21 @@ interface Props {
   target: THREE.Object3D;
 }
 
+function clampScale(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return Math.max(MIN_INSTANCE_SCALE, Math.min(MAX_INSTANCE_SCALE, v));
+}
+
 /** Small helper: read the target's live world transform, coerce to
- *  domain-space (mm + degrees), return the API update patch. */
+ *  domain-space (mm + degrees + clamped scale), return the API update
+ *  patch. In translate/rotate modes position/rotation may have changed;
+ *  in scale mode the scale vector will have. We always ship all three
+ *  so the store + server stay strictly consistent with what the group
+ *  is rendering. */
 function readPatchFromTarget(target: THREE.Object3D) {
   const pos = target.position;
   const rot = target.rotation;
+  const scl = target.scale;
   return {
     positionMm: {
       x: metersToMm(pos.x),
@@ -52,6 +67,11 @@ function readPatchFromTarget(target: THREE.Object3D) {
       x: radiansToDegrees(rot.x),
       y: radiansToDegrees(rot.y),
       z: radiansToDegrees(rot.z),
+    },
+    scale: {
+      x: clampScale(scl.x),
+      y: clampScale(scl.y),
+      z: clampScale(scl.z),
     },
   };
 }

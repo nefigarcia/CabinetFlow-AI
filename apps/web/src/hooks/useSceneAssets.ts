@@ -77,6 +77,7 @@ export function useSceneAssets(projectId: string) {
         updateInstance(instanceId, {
           positionMm: updated.positionMm,
           rotationDeg: updated.rotationDeg,
+          scale: updated.scale,
           visible: updated.visible,
           placement: updated.placement,
           materialOverrides: updated.materialOverrides,

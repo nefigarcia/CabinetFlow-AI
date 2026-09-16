@@ -43,7 +43,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!existing) return apiError("Scene asset not found", 404);
 
   // Build the Prisma update payload from validated user-controllable fields
-  // only. Tenancy is never patched. Scale is never patched (see Scale Policy).
+  // only. Tenancy is never patched. Scale is bound-checked in the shared
+  // Zod schema (`scaleVec3Schema`) so anything reaching this branch is
+  // finite and inside `[MIN_INSTANCE_SCALE, MAX_INSTANCE_SCALE]`.
   const data: Prisma.SceneAssetInstanceUpdateInput = {};
   if (parsed.data.positionMm) {
     data.posX = parsed.data.positionMm.x;
@@ -54,6 +56,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     data.rotX = parsed.data.rotationDeg.x;
     data.rotY = parsed.data.rotationDeg.y;
     data.rotZ = parsed.data.rotationDeg.z;
+  }
+  if (parsed.data.scale) {
+    data.scaleX = parsed.data.scale.x;
+    data.scaleY = parsed.data.scale.y;
+    data.scaleZ = parsed.data.scale.z;
   }
   if (parsed.data.visible !== undefined) data.visible = parsed.data.visible;
   if (parsed.data.placement !== undefined) {

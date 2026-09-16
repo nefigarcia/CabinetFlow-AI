@@ -49,6 +49,20 @@ export {
   sortRunItems,
 } from "./cabinet-run";
 
+export {
+  PLACEMENT_ONLY_PARAMETER_KEYS,
+  diffParameterKeys,
+  doesParameterChangeRequireCadRecompute,
+} from "./parameter-classification";
+
+export type { SnapResult, SnapTarget } from "./wall-drag";
+export {
+  DEFAULT_SNAP_TOLERANCE_MM,
+  clampCabinetOffset,
+  projectWorldPointToCabinetWallOffset,
+  snapCabinetOffset,
+} from "./wall-drag";
+
 export type {
   DistributeStrategy,
   FitRunReport,
