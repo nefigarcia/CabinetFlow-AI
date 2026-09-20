@@ -11,6 +11,11 @@ import {
   readAssignmentsFromMetadata,
 } from "@woodcraft/shared";
 import { verifySystemAssignmentTenancy } from "@/lib/system-assignment";
+import {
+  canAssignCabinetSystems,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; roomId: string } };
 
@@ -30,8 +35,11 @@ export async function GET(req: NextRequest, { params }: Params): Promise<Respons
 }
 
 export async function PATCH(req: NextRequest, { params }: Params): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const row = await findOwned(params.roomId, params.id, orgId);
   if (!row) return apiError("Room not found", 404);

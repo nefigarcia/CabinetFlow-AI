@@ -13,6 +13,11 @@ import {
   doesParameterChangeRequireCadRecompute,
   ProfileInheritance,
 } from "@woodcraft/shared";
+import {
+  canAssignCabinetSystems,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; roomId: string; cabinetId: string } };
 
@@ -38,7 +43,14 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  // Phase 2.1 authorization: cabinet edits (including Phase 2 system
+  // overrides) require owner/admin/designer. Viewers are forbidden from
+  // ANY cabinet mutation, not just system fields — matches the spec's
+  // "viewer forbidden" cabinet-edit rule.
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }
@@ -97,21 +109,38 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     for (const key of CABINET_SYSTEM_REF_KEYS) {
       const value = incomingParams[key];
       if (typeof value !== "string" || value.length === 0) continue;
+
+      if (key === "familyRuleId") {
+        const row = await prisma.cabinetFamilyRule.findFirst({
+          where: { id: value, orgId },
+          select: { id: true, orgId: true, cabinetType: true },
+        });
+        const check = assertSystemBelongsToOrg(row, orgId);
+        if (!check.ok) return apiError("Not found", 404);
+        // Phase 2.1 semantic guard: familyRule.cabinetType must match the
+        // cabinet's own type. Prevents assigning a Wall family rule to a
+        // Base cabinet. Server is authoritative — UI may filter dropdowns,
+        // but any bypass rejects here.
+        if (row && row.cabinetType !== existing.type) {
+          return apiError(
+            `Family rule '${value}' targets cabinetType='${row.cabinetType}' but this cabinet is type='${existing.type}'.`,
+            422,
+            "VALIDATION_ERROR",
+          );
+        }
+        continue;
+      }
+
       const row =
-        key === "familyRuleId"
-          ? await prisma.cabinetFamilyRule.findFirst({
+        key === "frontSystemId"
+          ? await prisma.frontSystem.findFirst({
               where: { id: value, orgId },
               select: { id: true, orgId: true },
             })
-          : key === "frontSystemId"
-            ? await prisma.frontSystem.findFirst({
-                where: { id: value, orgId },
-                select: { id: true, orgId: true },
-              })
-            : await prisma.drawerSystem.findFirst({
-                where: { id: value, orgId },
-                select: { id: true, orgId: true },
-              });
+          : await prisma.drawerSystem.findFirst({
+              where: { id: value, orgId },
+              select: { id: true, orgId: true },
+            });
       const check = assertSystemBelongsToOrg(row, orgId);
       if (!check.ok) return apiError("Not found", 404);
     }

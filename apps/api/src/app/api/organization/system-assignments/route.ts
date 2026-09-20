@@ -12,6 +12,11 @@ import {
   readAssignmentsFromMetadata,
 } from "@woodcraft/shared";
 import { verifySystemAssignmentTenancy } from "@/lib/system-assignment";
+import {
+  canManageOrganizationStandards,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_STANDARDS,
+} from "@/lib/authz";
 
 export async function GET(req: NextRequest): Promise<Response> {
   const { orgId } = getContext(req);
@@ -28,8 +33,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function PATCH(req: NextRequest): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationStandards(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_STANDARDS, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try {

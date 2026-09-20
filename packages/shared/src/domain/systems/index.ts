@@ -104,3 +104,13 @@ export {
 } from "./tenancy";
 
 export { buildDrawerSystemCandidate } from "./patch";
+
+// Phase 2.1 authorization predicates — server + client mirror.
+export {
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+  FORBIDDEN_MESSAGE_MANAGE_STANDARDS,
+  canAssignCabinetSystems,
+  canManageOrganizationStandards,
+  canReadCabinetSystems,
+} from "./authz";

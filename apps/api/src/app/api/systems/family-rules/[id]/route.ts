@@ -6,6 +6,11 @@ import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import { cabinetFamilyRulePatchSchema } from "@woodcraft/shared";
 import { buildSystemUpdatePayload, normalizeCabinetFamilyRuleRow } from "@/lib/systems";
+import {
+  canManageOrganizationStandards,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_STANDARDS,
+} from "@/lib/authz";
 
 type Params = { params: { id: string } };
 
@@ -22,8 +27,11 @@ export async function GET(req: NextRequest, { params }: Params): Promise<Respons
 }
 
 export async function PATCH(req: NextRequest, { params }: Params): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationStandards(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_STANDARDS, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findOwned(params.id, orgId);
   if (!existing) return apiError("Family rule not found", 404);
@@ -55,8 +63,11 @@ export async function PATCH(req: NextRequest, { params }: Params): Promise<Respo
 }
 
 export async function DELETE(req: NextRequest, { params }: Params): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationStandards(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_STANDARDS, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findOwned(params.id, orgId);
   if (!existing) return apiError("Family rule not found", 404);

@@ -1,17 +1,23 @@
 "use client";
 
 import type { Room } from "@woodcraft/shared";
+import { AssignmentsPanel } from "@/components/settings/systems/AssignmentsPanel";
 
 // STEP 2 stub — shows real room dimensions and a "properties coming
 // soon" marker for the fields that will land in STEP 5 (room type
 // picker via Room.metadata.roomType, walls, openings, environment).
 // No fake data: every value below comes from the actual Room record.
+//
+// Phase 2.1 adds a Cabinet Systems Defaults section for this room —
+// metadata + readiness only, resolves at Room scope on the effective-
+// systems endpoint.
 
 interface Props {
   room: Room | undefined;
+  projectId?: string;
 }
 
-export function RoomInspector({ room }: Props) {
+export function RoomInspector({ room, projectId }: Props) {
   if (!room) {
     return (
       <div className="h-full flex items-center justify-center px-6">
@@ -78,6 +84,22 @@ export function RoomInspector({ room }: Props) {
           backsplash when a base cabinet is present.
         </p>
       </section>
+
+      {/* Phase 2.1 — room-level cabinet system defaults. Metadata + readiness only. */}
+      {projectId && (
+        <section>
+          <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">Cabinet system defaults</p>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Room-level overrides. Unassigned entries inherit from the project.
+          </p>
+          <AssignmentsPanel
+            scope="room"
+            projectId={projectId}
+            roomId={room.id}
+            inheritLabel="Inherit from project"
+          />
+        </section>
+      )}
     </div>
   );
 }

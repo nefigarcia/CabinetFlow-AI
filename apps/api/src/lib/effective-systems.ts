@@ -212,6 +212,37 @@ export async function buildEffectiveSystemsForCabinet(input: {
     readiness.push({ code: r.code, severity: "warning", detail: r.detail });
   }
 
+  // ─── SYSTEM_UNCOMMON_COMBO — non-blocking flags for unusual pairings ───
+  // Warning-only. Do NOT auto-correct or block PATCHes.
+  const doorCount = readPositiveInt(params, "doorCount");
+  const drawerCount = readPositiveInt(params, "drawerCount");
+  const isDrawerCabinet =
+    input.cabinetType === "drawer_base" || drawerCount > 0;
+  if (front.system && input.cabinetType === "drawer_base" &&
+      (front.system.kind === "hinged_single" || front.system.kind === "hinged_double")) {
+    readiness.push({
+      code: "SYSTEM_UNCOMMON_COMBO",
+      severity: "warning",
+      detail: `Front '${front.system.kind}' on a drawer_base cabinet is unusual — verify intent.`,
+    });
+  }
+  if (drawer.system && !isDrawerCabinet) {
+    readiness.push({
+      code: "SYSTEM_UNCOMMON_COMBO",
+      severity: "warning",
+      detail: `Drawer system '${drawer.system.name}' assigned but this cabinet has drawerCount=${drawerCount}${input.cabinetType !== "drawer_base" ? ` and type='${input.cabinetType}'` : ""}.`,
+    });
+  }
+  if (front.system && front.system.role === "appliance_panel" && front.system.kind === "bifold") {
+    readiness.push({
+      code: "SYSTEM_UNCOMMON_COMBO",
+      severity: "warning",
+      detail: "Front role='appliance_panel' combined with kind='bifold' is unusual — verify intent.",
+    });
+  }
+  // Sanity: unused variable references satisfy strict TS
+  void doorCount;
+
   return {
     family,
     front,
@@ -219,6 +250,16 @@ export async function buildEffectiveSystemsForCabinet(input: {
     hardware,
     readiness,
   };
+}
+
+function readPositiveInt(
+  params: Record<string, unknown> | null | undefined,
+  key: string,
+): number {
+  if (!params) return 0;
+  const v = params[key];
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 async function loadFrontSystemsByIds(

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
+import { AssignmentsPanel } from "@/components/settings/systems/AssignmentsPanel";
 
 interface Room { id: string; name: string; width: number; height: number; depth: number; _count: { cabinets: number }; createdAt: string }
 interface Project {
@@ -205,6 +206,17 @@ export default function ProjectDetailPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Cabinet system defaults — Phase 2.1. Metadata + readiness only. */}
+      <div className="mt-8 pt-6 border-t border-surface-200">
+        <h2 className="text-white font-semibold mb-1">Cabinet system defaults</h2>
+        <p className="text-gray-500 text-xs mb-4">
+          Project-level overrides for family rules, front, and drawer systems. Unassigned
+          entries inherit from the organization. Applies to every cabinet in this project
+          unless further overridden at Room or Cabinet scope.
+        </p>
+        <AssignmentsPanel scope="project" projectId={id} inheritLabel="Inherit from organization" />
       </div>
 
       {/* Danger zone */}

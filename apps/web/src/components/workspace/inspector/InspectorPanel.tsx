@@ -179,7 +179,7 @@ export function InspectorPanel({
             <CabinetInspectorEmpty />
           ))}
         {inspectorTab === "material" && <MaterialInspector selectedCabinet={cabinet} />}
-        {inspectorTab === "room" && <RoomInspector room={room} />}
+        {inspectorTab === "room" && <RoomInspector room={room} projectId={projectId} />}
         {inspectorTab === "sceneAsset" &&
           (sceneAssetInstance ? (
             <SceneAssetInspector
