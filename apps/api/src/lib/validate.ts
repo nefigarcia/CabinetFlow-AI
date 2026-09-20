@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  HARDWARE_TYPES,
   sceneAssetInstanceCreateSchema,
   sceneAssetInstanceUpdateSchema,
 } from "@woodcraft/shared";
@@ -194,16 +195,12 @@ export const createRevisionSchema = z.object({
 
 // ─── Hardware ────────────────────────────────────────────────────────────────
 
-export const HARDWARE_TYPES = [
-  "hinge",
-  "drawer_slide",
-  "handle",
-  "screw",
-  "cam_lock",
-  "shelf_pin",
-  "soft_close",
-  "other",
-] as const;
+// HARDWARE_TYPES is the canonical vocabulary — moved to @woodcraft/shared
+// so both the legacy BOM aggregator and the Phase 2 semantic
+// HardwareResolution can bind to the same list. Value list is byte-
+// identical to what this file previously declared. Re-exported here to
+// preserve any downstream imports.
+export { HARDWARE_TYPES };
 
 export const createHardwareSchema = z.object({
   name: z.string().min(1).max(255),

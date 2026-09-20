@@ -21,6 +21,23 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Phase 2 uses this bag to store `cabinetSystemAssignments`:
+  //   { familyRuleIdsByCabinetType: { base?, wall?, ... },
+  //     preferredFrontSystemId?, preferredDrawerSystemId? }
+  // No new FK columns on organizations for family/front/drawer refs.
+  metadata  Json?
+
+  // ── Profile-inheritance defaults (Phase 1 — metadata + readiness
+  // only; NOT wired into the geometry compiler). Nullable so an org
+  // without a chosen default falls through to hardcoded compiler
+  // behavior exactly as today.
+  defaultConstructionProfileId String?                 @map("default_construction_profile_id")
+  defaultConstructionProfile   ConstructionProfile?    @relation("OrgDefaultConstruction", fields: [defaultConstructionProfileId], references: [id], onDelete: SetNull)
+  defaultMaterialProfileId     String?                 @map("default_material_profile_id")
+  defaultMaterialProfile       CabinetMaterialProfile? @relation("OrgDefaultMaterial", fields: [defaultMaterialProfileId], references: [id], onDelete: SetNull)
+  defaultHardwareProfileId     String?                 @map("default_hardware_profile_id")
+  defaultHardwareProfile       HardwareProfile?        @relation("OrgDefaultHardware", fields: [defaultHardwareProfileId], references: [id], onDelete: SetNull)
+
   users          User[]
   clients        Client[]
   projects       Project[]
@@ -29,6 +46,21 @@ model Organization {
   machineProfiles MachineProfile[]
   productionRuns ProductionRun[]
 
+  constructionProfiles     ConstructionProfile[]
+  cabinetMaterialProfiles  CabinetMaterialProfile[]
+  hardwareProfiles         HardwareProfile[]
+
+  // Phase 2 — cabinet-family / front-system / drawer-system library.
+  // Assignments (which rule/system applies where) live in
+  // Organization.metadata / Project.metadata / Room.metadata JSON blobs
+  // and Cabinet.parameters JSON — no relation columns on those tables.
+  cabinetFamilyRules       CabinetFamilyRule[]
+  frontSystems             FrontSystem[]
+  drawerSystems            DrawerSystem[]
+
+  @@index([defaultConstructionProfileId])
+  @@index([defaultMaterialProfileId])
+  @@index([defaultHardwareProfileId])
   @@map("organizations")
 }
 
@@ -92,6 +124,15 @@ model Project {
   status      String   @default("draft") @db.VarChar(50)
   metadata    Json?
 
+  // ── Profile-inheritance overrides (Phase 1). Nullable — omitted
+  // fields fall through to org defaults via the resolver.
+  constructionProfileId String?                 @map("construction_profile_id")
+  constructionProfile   ConstructionProfile?    @relation("ProjectConstruction", fields: [constructionProfileId], references: [id], onDelete: SetNull)
+  materialProfileId     String?                 @map("material_profile_id")
+  materialProfile       CabinetMaterialProfile? @relation("ProjectMaterial", fields: [materialProfileId], references: [id], onDelete: SetNull)
+  hardwareProfileId     String?                 @map("hardware_profile_id")
+  hardwareProfile       HardwareProfile?        @relation("ProjectHardware", fields: [hardwareProfileId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -104,6 +145,9 @@ model Project {
 
   @@index([orgId])
   @@index([clientId])
+  @@index([constructionProfileId])
+  @@index([materialProfileId])
+  @@index([hardwareProfileId])
   @@map("projects")
 }
 
@@ -121,6 +165,16 @@ model Room {
   height    Decimal  @db.Decimal(10, 4)
   depth     Decimal  @db.Decimal(10, 4)
   metadata  Json?
+
+  // ── Profile-inheritance overrides (Phase 1). Nullable — omitted
+  // fields fall through to project → org via the resolver.
+  constructionProfileId String?                 @map("construction_profile_id")
+  constructionProfile   ConstructionProfile?    @relation("RoomConstruction", fields: [constructionProfileId], references: [id], onDelete: SetNull)
+  materialProfileId     String?                 @map("material_profile_id")
+  materialProfile       CabinetMaterialProfile? @relation("RoomMaterial", fields: [materialProfileId], references: [id], onDelete: SetNull)
+  hardwareProfileId     String?                 @map("hardware_profile_id")
+  hardwareProfile       HardwareProfile?        @relation("RoomHardware", fields: [hardwareProfileId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -130,6 +184,9 @@ model Room {
 
   @@index([projectId])
   @@index([orgId])
+  @@index([constructionProfileId])
+  @@index([materialProfileId])
+  @@index([hardwareProfileId])
   @@map("rooms")
 }
 
@@ -602,4 +659,273 @@ model InstallerFeedback {
   @@index([orgId])
   @@index([projectId])
   @@map("installer_feedback")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 19. PROFILE INHERITANCE — construction / material / hardware profiles.
+//
+// Phase 1: metadata + readiness only. compileUnit, CAD service, DXF,
+// CNC, nesting are NOT wired to these profiles. Existing hardcoded
+// compiler defaults remain authoritative.
+//
+// Verification model:
+//   verificationStatus (row-level): "verified" | "partially_verified"
+//     | "project_specific" | "unverified" — a summary; NOT authoritative
+//     for individual fields.
+//   fieldProvenance (per-field): FieldProvenanceMap JSON, mapping canonical
+//     field name → { status, sourceRef }. The Inspector reads this to
+//     display per-field verification.
+//   verificationGaps (row-level): string[] of canonical gap keys the row
+//     acknowledges as UNVERIFIED. Effective gap resolution: a mapped
+//     field with a verified/non-null value at ANY scope closes its gap.
+//   metadata.deferredCapabilities: array of VERIFIED-BUT-UNMODELED facts
+//     (e.g. Hawkes drawer sub-part thicknesses; Klint Legrabox) — the
+//     shop KNOWS these but the typed domain isn't built yet. Surfaced
+//     under a separate PROFILE_CAPABILITY_DEFERRED readiness code.
+//
+// Physical Json storage is LONGTEXT per the schema-wide convention
+// (packages/db/MIGRATIONS.md "Known drift alert").
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ConstructionProfile {
+  id                          String   @id @default(cuid())
+  orgId                       String   @map("org_id")
+
+  name                        String   @db.VarChar(120)
+  description                 String?  @db.Text
+
+  // Construction method (WHAT joinery family) — distinct from front overlay.
+  constructionMethod          String?  @db.VarChar(20)  // "face_frame" | "frameless"
+
+  // Front overlay mode (HOW fronts sit on the case) — orthogonal to method.
+  frontOverlayMode            String?  @db.VarChar(24)  // "inset" | "partial_overlay" | "full_overlay"
+
+  // Verified DIMENSIONAL construction facts (nullable — leave NULL until
+  // shop-standard evidence).
+  carcassThicknessMm          Decimal? @db.Decimal(6, 2)  // 19.05 = 3/4"
+  drawerBoxThicknessMm        Decimal? @db.Decimal(6, 2)  // 15.00 = 15mm (Bibb)
+  drawerBoxJoinery            String?  @db.VarChar(60)    // "dovetail"
+  backThicknessMm             Decimal? @db.Decimal(6, 2)  // 6.35 = 1/4" (Bearnson build sheets)
+  adjustableShelfThicknessMm  Decimal? @db.Decimal(6, 2)  // 19.05 = 3/4" (Bearnson build sheets)
+  nailerThicknessMm           Decimal? @db.Decimal(6, 2)  // 19.05 = 3/4" (Bearnson build sheets)
+
+  verificationStatus          String   @default("unverified") @db.VarChar(24)
+  verificationGaps            Json?
+  sourceRef                   String?  @db.VarChar(200)
+  fieldProvenance             Json?
+
+  // Freeform extras — NEVER a place to stash guessed manufacturing values.
+  // Reserved for provenance notes, deferredCapabilities, etc.
+  metadata                    Json?
+
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  org                         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  orgDefaults                 Organization[] @relation("OrgDefaultConstruction")
+  projectRefs                 Project[]      @relation("ProjectConstruction")
+  roomRefs                    Room[]         @relation("RoomConstruction")
+
+  @@index([orgId])
+  @@index([orgId, verificationStatus])
+  @@map("construction_profiles")
+}
+
+model CabinetMaterialProfile {
+  id                             String   @id @default(cuid())
+  orgId                          String   @map("org_id")
+
+  name                           String   @db.VarChar(120)
+  description                    String?  @db.Text
+
+  // Per-slot material spec text. Text (not FK) so a shop can express
+  // policy like "Baltic birch OR solid maple". Spec strings EXCLUDE
+  // thickness — thickness lives on ConstructionProfile.
+  carcassMaterialSpec            String?  @db.VarChar(200)
+  drawerBoxMaterialSpec          String?  @db.VarChar(200)
+  faceFrameMaterialSpec          String?  @db.VarChar(200)
+  doorMaterialSpec               String?  @db.VarChar(200)
+  shelfMaterialSpec              String?  @db.VarChar(200)  // Fixed shelves — TBD
+  backMaterialSpec               String?  @db.VarChar(200)  // "Maple Melamine G2S" (Bearnson)
+  adjustableShelfMaterialSpec    String?  @db.VarChar(200)  // "Maple Melamine" (Bearnson)
+  nailerMaterialSpec             String?  @db.VarChar(200)  // "Maple Melamine" (Bearnson)
+
+  verificationStatus             String   @default("unverified") @db.VarChar(24)
+  verificationGaps               Json?
+  sourceRef                      String?  @db.VarChar(200)
+  fieldProvenance                Json?
+  metadata                       Json?
+
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  org                            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  orgDefaults                    Organization[] @relation("OrgDefaultMaterial")
+  projectRefs                    Project[]      @relation("ProjectMaterial")
+  roomRefs                       Room[]         @relation("RoomMaterial")
+
+  @@index([orgId])
+  @@index([orgId, verificationStatus])
+  @@map("cabinet_material_profiles")
+}
+
+model HardwareProfile {
+  id                             String   @id @default(cuid())
+  orgId                          String   @map("org_id")
+
+  name                           String   @db.VarChar(120)
+  description                    String?  @db.Text
+
+  // Verified minimum for Bearnson: manufacturer + soft-close from the
+  // Approved Proposal. NO Clip Top / Movento / Tandem inferred.
+  // Booleans are Boolean? — NULL = UNKNOWN, distinct from VERIFIED FALSE.
+  hingeManufacturer              String?  @db.VarChar(60)
+  hingeSoftClose                 Boolean?
+  hingeSystem                    String?  @db.VarChar(120)
+
+  drawerSlideManufacturer        String?  @db.VarChar(60)
+  drawerSlideSoftClose           Boolean?
+  drawerSlideSystem              String?  @db.VarChar(120)
+
+  verificationStatus             String   @default("unverified") @db.VarChar(24)
+  verificationGaps               Json?
+  sourceRef                      String?  @db.VarChar(200)
+  fieldProvenance                Json?
+  metadata                       Json?
+
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  org                            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  orgDefaults                    Organization[] @relation("OrgDefaultHardware")
+  projectRefs                    Project[]      @relation("ProjectHardware")
+  roomRefs                       Room[]         @relation("RoomHardware")
+
+  @@index([orgId])
+  @@index([orgId, verificationStatus])
+  @@map("hardware_profiles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 2 — CABINET FAMILY RULES / FRONT SYSTEMS / DRAWER SYSTEMS
+//
+// Family-dependent structural + geometric policy; front / drawer system
+// libraries. Metadata + readiness only — Phase 2 does NOT wire these
+// into compileUnit, CAD service, syncParts, DXF, CNC, sheet nesting,
+// G-code, or calculateHardwareBom. Existing hardcoded compiler + BOM
+// behavior remains authoritative.
+//
+// Assignments are stored in JSON metadata bags:
+//   Organization.metadata.cabinetSystemAssignments
+//   Project.metadata.cabinetSystemAssignments
+//   Room.metadata.cabinetSystemAssignments
+//   Cabinet.parameters { familyRuleId, frontSystemId, drawerSystemId, disableFamilyRule }
+// This avoids 7 nullable FK columns for the per-CabinetType family map.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CabinetFamilyRule {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  cabinetType String   @db.VarChar(32)  // matches CabinetType enum in domain
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+
+  // Structural presence — nullable so "unknown" is distinct from "false".
+  hasToeKick        Boolean?
+  hasBack           Boolean?
+  hasNailer         Boolean?
+  fixedShelfPolicy  String?  @db.VarChar(32)  // "none" | "structural" | "optional"
+  cornerVariant     String?  @db.VarChar(24)  // "blind_left" | "blind_right" | "l_corner"
+
+  // Family-dependent geometry / design policy. NEVER wired to compileUnit.
+  toeHeightMm     Decimal? @db.Decimal(10, 4)
+  toeRecessMm     Decimal? @db.Decimal(10, 4)
+  topRevealMm     Decimal? @db.Decimal(10, 4)
+  bottomRevealMm  Decimal? @db.Decimal(10, 4)
+  topScribeMm     Decimal? @db.Decimal(10, 4)
+  bottomScribeMm  Decimal? @db.Decimal(10, 4)
+
+  verificationStatus String   @default("unverified") @db.VarChar(24)
+  verificationGaps   Json?
+  sourceRef          String?  @db.VarChar(200)
+  fieldProvenance    Json?
+  metadata           Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([orgId, cabinetType])
+  @@map("cabinet_family_rules")
+}
+
+model FrontSystem {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+
+  // Movement kind — orthogonal to role/glassFlag.
+  // "hinged_single" | "hinged_double" | "bifold" | "pocket" | "open" | "fixed_panel"
+  kind      String   @db.VarChar(24)
+  // "cabinet_front" | "appliance_panel"
+  role      String   @db.VarChar(24)
+  glassFlag Boolean  @default(false)
+
+  verificationStatus String   @default("unverified") @db.VarChar(24)
+  verificationGaps   Json?
+  sourceRef          String?  @db.VarChar(200)
+  fieldProvenance    Json?
+  metadata           Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([orgId, kind])
+  @@map("front_systems")
+}
+
+model DrawerSystem {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+
+  // "traditional" | "proprietary" — controls which subset of fields is
+  // populated. Enforcement of the discriminated shape happens in the
+  // Zod schemas (CREATE full + PATCH candidate-state validation).
+  kind String @db.VarChar(24)
+
+  // Traditional fields — null when kind = "proprietary".
+  boxSideThicknessMm     Decimal? @db.Decimal(10, 4)
+  boxBottomThicknessMm   Decimal? @db.Decimal(10, 4)
+  boxBackThicknessMm     Decimal? @db.Decimal(10, 4)
+  boxSubFrontThicknessMm Decimal? @db.Decimal(10, 4)
+  boxJoinery             String?  @db.VarChar(32)   // "dovetail" | "dowel" | "confirmat" | "rabbet_dado" | "butt_screw"
+
+  // Proprietary fields — null when kind = "traditional".
+  proprietaryFamily String? @db.VarChar(64)
+
+  verificationStatus String   @default("unverified") @db.VarChar(24)
+  verificationGaps   Json?
+  sourceRef          String?  @db.VarChar(200)
+  fieldProvenance    Json?
+  metadata           Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([orgId, kind])
+  @@map("drawer_systems")
 }

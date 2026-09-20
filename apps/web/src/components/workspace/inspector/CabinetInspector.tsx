@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import { PropertiesPanel } from "@/components/editor/PropertiesPanel";
+import { EffectiveProfileSection } from "./EffectiveProfileSection";
+import { CabinetSystemsSection } from "./CabinetSystemsSection";
 import { useEditorStore } from "@/store/editor";
 import type { ValidationReport } from "@/hooks/useCabinets";
 import { useCabinets } from "@/hooks/useCabinets";
@@ -466,6 +468,29 @@ export function CabinetInspector({
               </ul>
             </section>
           )}
+        </div>
+      )}
+
+      {/* Effective Profile (Phase 1) — metadata + non-blocking readiness only. */}
+      {cabinet && (
+        <div className="px-3 py-2" style={{ borderTop: "1px solid #1E2226" }}>
+          <EffectiveProfileSection
+            projectId={projectId}
+            roomId={cabinet.roomId}
+            cabinetId={cabinet.id}
+          />
+        </div>
+      )}
+
+      {/* Cabinet Systems (Phase 2) — family rule + front/drawer system +
+          semantic hardware. Metadata + non-blocking readiness only. */}
+      {cabinet && (
+        <div className="px-3 py-2" style={{ borderTop: "1px solid #1E2226" }}>
+          <CabinetSystemsSection
+            projectId={projectId}
+            roomId={cabinet.roomId}
+            cabinetId={cabinet.id}
+          />
         </div>
       )}
 

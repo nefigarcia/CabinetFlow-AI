@@ -143,3 +143,200 @@ export * from "./architecture";
 // the manufacturing compiler (types/geometry.ts); never touches the
 // compiler and never generates parts.
 export * from "./cabinets";
+
+// Profile Inheritance domain (Phase 1). Persistent construction /
+// material / hardware profiles with field-level inheritance, per-field
+// provenance, verification gaps, and deferred-capability metadata.
+// Metadata + readiness only in Phase 1 — never wired into compileUnit,
+// CAD service, DXF, CNC, or nesting.
+//
+// Exposed BOTH as a namespace (for tests + docs) and as specific
+// top-level re-exports. The specific names below are distinct from the
+// older intent-only ConstructionProfile / MaterialProfile /
+// HardwareProfile schemas exported directly above (which describe the
+// Cabinet Design intent model, not persistent shop profiles).
+export * as ProfileInheritance from "./profiles";
+
+// Cabinet Systems domain (Phase 2). Family rules, front / drawer
+// systems, semantic HardwareResolution, cabinet-system assignment
+// merge + resolver. Metadata + readiness only — NEVER wired into
+// compileUnit, CAD service, syncParts, DXF, CNC, sheet nesting,
+// G-code, or the legacy calculateHardwareBom.
+export * as CabinetSystems from "./systems";
+export {
+  // vocabularies + field lists
+  CABINET_DISABLE_FAMILY_RULE_KEY,
+  CABINET_FAMILY_RULE_FIELDS,
+  CABINET_SYSTEM_REF_KEYS,
+  CORNER_VARIANTS,
+  DRAWER_BOX_JOINERIES,
+  DRAWER_SYSTEM_FIELDS,
+  DRAWER_SYSTEM_KINDS,
+  FIXED_SHELF_POLICIES,
+  FRONT_SYSTEM_FIELDS,
+  FRONT_SYSTEM_KINDS,
+  FRONT_SYSTEM_ROLES,
+  HARDWARE_PROVENANCE_SOURCES,
+  HARDWARE_TYPES,
+  HARDWARE_UNITS,
+  PHASE2_READINESS_CODES,
+  QUANTITY_STATUSES,
+  // Zod schemas
+  cabinetFamilyRuleCreateSchema,
+  cabinetFamilyRulePatchSchema,
+  cabinetSystemAssignmentsFullSchema,
+  cabinetSystemAssignmentsPatchSchema,
+  drawerSystemCreateSchema,
+  drawerSystemPatchSchema,
+  frontSystemCreateSchema,
+  frontSystemPatchSchema,
+  // assignments
+  mergeCabinetSystemAssignments,
+  mergeMetadataAssignmentsPatch,
+  readAssignmentsFromMetadata,
+  // resolvers
+  assertSameOrg,
+  pickFamilyRuleIdForType,
+  resolveCabinetFamilyRule,
+  resolveDrawerSystem,
+  resolveFrontSystem,
+  // hardware resolution
+  resolveHardwareRequirements,
+  // tenancy
+  assertSystemBelongsToOrg,
+  // patch candidate builder
+  buildDrawerSystemCandidate,
+  // types
+  type CabinetFamilyRuleCreateInput,
+  type CabinetFamilyRuleField,
+  type CabinetFamilyRuleFields,
+  type CabinetFamilyRulePatchInput,
+  type CabinetFamilyRuleRow,
+  type CabinetSystemAssignments,
+  type CabinetSystemAssignmentsFull,
+  type CabinetSystemAssignmentsPatch,
+  type CabinetSystemRefKey,
+  type CornerVariant,
+  type DrawerBoxJoinery,
+  type DrawerSystemCreateInput,
+  type DrawerSystemField,
+  type DrawerSystemFields,
+  type DrawerSystemKind,
+  type DrawerSystemPatchInput,
+  type DrawerSystemResolution,
+  type DrawerSystemResolverInput,
+  type DrawerSystemRow,
+  type FamilyResolution,
+  type FamilyResolutionSource,
+  type FamilyResolutionStatus,
+  type FamilyResolverInput,
+  type FixedShelfPolicy,
+  type FrontSystemCreateInput,
+  type FrontSystemField,
+  type FrontSystemFields,
+  type FrontSystemKind,
+  type FrontSystemPatchInput,
+  type FrontSystemResolution,
+  type FrontSystemResolverInput,
+  type FrontSystemRole,
+  type FrontSystemRow,
+  type HardwareCategory,
+  type HardwareProvenanceSource,
+  type HardwareRequirement,
+  type HardwareRequirementProvenance,
+  type HardwareResolution,
+  type HardwareResolutionInput,
+  type HardwareResolutionOutput,
+  type HardwareUnit,
+  type Phase2ReadinessCode,
+  type QuantityStatus,
+  type SystemResolutionSource,
+  type SystemResolutionStatus,
+  type SystemRowMetadata,
+  type SystemTenancyCheckErr,
+  type SystemTenancyCheckOk,
+  type SystemTenancyCheckResult,
+} from "./systems";
+export {
+  // types + canonical field lists
+  CONSTRUCTION_FIELDS,
+  FIELD_VERIFICATION_STATUSES,
+  HARDWARE_FIELDS,
+  MATERIAL_FIELDS,
+  SCOPE_PRECEDENCE,
+  VERIFICATION_STATUSES,
+  // Zod schemas
+  assignProfilesToOrgSchema,
+  assignProfilesToProjectSchema,
+  assignProfilesToRoomSchema,
+  cabinetMaterialProfileWriteSchema,
+  constructionProfileWriteSchema,
+  fieldProvenanceMapSchema,
+  fieldProvenanceSchema,
+  fieldVerificationStatusSchema,
+  hardwareProfileWriteSchema,
+  makeStrictFieldProvenanceMapSchema,
+  nullableMetadataSchema,
+  verificationGapsSchema,
+  verificationStatusSchema,
+  // gap vocabulary
+  CANONICAL_GAP_KEYS,
+  GAP_FIELD_MAP,
+  // resolvers + effective helpers
+  effectiveDeferredCapabilities,
+  effectiveFieldVerification,
+  effectiveVerificationGaps,
+  mergeProfileFields,
+  // deferred capabilities
+  DEFERRED_CAPABILITIES,
+  DEFERRED_CAPABILITY_STATUSES,
+  deferredCapabilitiesArraySchema,
+  deferredCapabilitySchema,
+  makeStrictDeferredCapabilitiesSchema,
+  readDeferredCapabilities,
+  // patch semantics
+  buildPartialPrismaUpdate,
+  normalizeStaleFieldProvenance,
+  // tenancy
+  assertProfileBelongsToOrg,
+  // types
+  type AssignProfilesToOrgInput,
+  type AssignProfilesToProjectInput,
+  type AssignProfilesToRoomInput,
+  type CabinetMaterialProfileFields,
+  type CabinetMaterialProfileRow,
+  type CabinetMaterialProfileWriteInput,
+  type ConstructionField,
+  type ConstructionProfileFields,
+  type ConstructionProfileRow,
+  type ConstructionProfileWriteInput,
+  type DeferredCapability,
+  type DeferredCapabilityContribution,
+  type DeferredCapabilityName,
+  type DeferredCapabilityStatus,
+  type EffectiveDeferredCapability,
+  type EffectiveProfile,
+  type EffectiveProfileBundle,
+  type FieldProvenance,
+  type FieldProvenanceMap,
+  type FieldVerification,
+  type FieldVerificationStatus,
+  type GapEvaluationPurpose,
+  type GapMapping,
+  type GapResolutionInput,
+  type GapResolutionResult,
+  type HardwareField,
+  type HardwareProfileFields,
+  type HardwareProfileRow,
+  type HardwareProfileWriteInput,
+  type MaterialField,
+  type ProfileKind,
+  type ProfileRowMetadata,
+  type ProfilesBySourceBundle,
+  type ProfileSource,
+  type ScopeContribution,
+  type TenancyCheckErr,
+  type TenancyCheckOk,
+  type TenancyCheckResult,
+  type VerificationStatus,
+} from "./profiles";

@@ -50,10 +50,19 @@ export {
 } from "./cabinet-run";
 
 export {
+  PARAMETER_IMPACT,
   PLACEMENT_ONLY_PARAMETER_KEYS,
+  classifyParameterKey,
   diffParameterKeys,
   doesParameterChangeRequireCadRecompute,
+  type ParameterImpact,
 } from "./parameter-classification";
+
+export {
+  CABINET_PROFILE_REF_KEYS,
+  applyCabinetParametersPatch,
+  isDeletableCabinetParameterKey,
+} from "./parameters-patch";
 
 export type { SnapResult, SnapTarget } from "./wall-drag";
 export {

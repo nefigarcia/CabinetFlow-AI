@@ -5,7 +5,14 @@ import { parseBody, updateCabinetSchema } from "@/lib/validate";
 import { cadService } from "@/lib/services";
 import { syncParts } from "@/lib/parts";
 import { apiError, ok } from "@/lib/errors";
-import { doesParameterChangeRequireCadRecompute } from "@woodcraft/shared";
+import {
+  CABINET_PROFILE_REF_KEYS,
+  CABINET_SYSTEM_REF_KEYS,
+  applyCabinetParametersPatch,
+  assertSystemBelongsToOrg,
+  doesParameterChangeRequireCadRecompute,
+  ProfileInheritance,
+} from "@woodcraft/shared";
 
 type Params = { params: { id: string; roomId: string; cabinetId: string } };
 
@@ -47,39 +54,97 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (!mat) return apiError("Material not found", 404);
   }
 
-  // Merge parameters rather than replacing the entire JSON object
-  const mergedParameters =
-    parsed.data.parameters
-      ? { ...(existing.parameters as Record<string, unknown>), ...parsed.data.parameters }
-      : undefined;
+  // ── Canonical parameters merge ─────────────────────────────────────────────
+  // Uses the shared `applyCabinetParametersPatch` helper so profile-ref
+  // and wallPlacement deletion (`null` in patch) correctly REMOVE keys
+  // from the JSON bag. Prior inline shallow-spread pattern is retired.
+  const parametersWasPatched = parsed.data.parameters !== undefined;
+  const existingParameters = existing.parameters as Record<string, unknown>;
+  const nextParameters = applyCabinetParametersPatch(
+    existingParameters,
+    parsed.data.parameters,
+  );
+
+  // ── Tenancy: any non-null profile ref in the patch must belong to org ─────
+  // Deletions (`null`) skip the lookup by design. Rejection returns 404
+  // uniformly — no metadata leak about cross-org profiles.
+  const incomingParams: Record<string, unknown> | undefined = parsed.data.parameters;
+  if (incomingParams) {
+    for (const key of CABINET_PROFILE_REF_KEYS) {
+      const value = incomingParams[key];
+      if (typeof value !== "string" || value.length === 0) continue;
+      const row =
+        key === "constructionProfileId"
+          ? await prisma.constructionProfile.findFirst({
+              where: { id: value, orgId },
+              select: { id: true, orgId: true },
+            })
+          : key === "materialProfileId"
+            ? await prisma.cabinetMaterialProfile.findFirst({
+                where: { id: value, orgId },
+                select: { id: true, orgId: true },
+              })
+            : await prisma.hardwareProfile.findFirst({
+                where: { id: value, orgId },
+                select: { id: true, orgId: true },
+              });
+      const check = ProfileInheritance.assertProfileBelongsToOrg(row, orgId);
+      if (!check.ok) return apiError("Profile not found", 404);
+    }
+
+    // Phase 2 system refs (familyRuleId, frontSystemId, drawerSystemId).
+    // Same uniform 404 posture as profile refs.
+    for (const key of CABINET_SYSTEM_REF_KEYS) {
+      const value = incomingParams[key];
+      if (typeof value !== "string" || value.length === 0) continue;
+      const row =
+        key === "familyRuleId"
+          ? await prisma.cabinetFamilyRule.findFirst({
+              where: { id: value, orgId },
+              select: { id: true, orgId: true },
+            })
+          : key === "frontSystemId"
+            ? await prisma.frontSystem.findFirst({
+                where: { id: value, orgId },
+                select: { id: true, orgId: true },
+              })
+            : await prisma.drawerSystem.findFirst({
+                where: { id: value, orgId },
+                select: { id: true, orgId: true },
+              });
+      const check = assertSystemBelongsToOrg(row, orgId);
+      if (!check.ok) return apiError("Not found", 404);
+    }
+  }
 
   const updated = await prisma.cabinet.update({
     where: { id: params.cabinetId },
     data: {
       ...parsed.data,
-      ...(mergedParameters && { parameters: mergedParameters }),
+      // Overwrite the parameters column ONLY when the caller sent a
+      // `parameters` key. Prevents no-op writes to a JSON column.
+      ...(parametersWasPatched && { parameters: nextParameters }),
     },
   });
 
-  // ── Constraint propagation ──────────────────────────────────────────────────
-  // A CAD recompute is expensive (external service call + parts resync)
-  // and is only justified when the change affects MANUFACTURING geometry.
+  // ── Constraint propagation ─────────────────────────────────────────────────
+  // CAD recompute detection compares PREVIOUS-final vs NEXT-final params
+  // so deletion of a deletable key (profile ref / wallPlacement — both
+  // classified as non-manufacturing) does NOT trigger a recompute.
+  //
   // Explicit rules:
-  //   · Width / height / depth change → recompute (dimensions drive parts).
-  //   · `parameters` change → recompute ONLY when a manufacturing-affecting
-  //     parameter changed. Placement-only keys (currently `wallPlacement`)
-  //     are classified by `doesParameterChangeRequireCadRecompute` and do
-  //     NOT trigger recompute — moving a cabinet along a wall shouldn't
-  //     re-cut it. Unknown parameter keys default to "recompute" (safe:
-  //     the worst case is an extra CAD call, not a missed one).
+  //   · Width / height / depth change → recompute.
+  //   · `parameters` change → recompute ONLY when a "manufacturing"
+  //     -classified key changed (see PARAMETER_IMPACT). Unknown keys
+  //     default to "manufacturing" — safe default: worst case is an
+  //     extra CAD call, not a missed one.
   const dimensionOnlyChange =
     parsed.data.width !== undefined ||
     parsed.data.height !== undefined ||
     parsed.data.depth !== undefined;
-  const manufacturingParameterChanged = doesParameterChangeRequireCadRecompute(
-    existing.parameters as Record<string, unknown>,
-    parsed.data.parameters,
-  );
+  const manufacturingParameterChanged = parametersWasPatched
+    ? doesParameterChangeRequireCadRecompute(existingParameters, nextParameters)
+    : false;
   const dimensionsChanged = dimensionOnlyChange || manufacturingParameterChanged;
 
   let parts = existing.parts;
@@ -93,7 +158,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         width: Number(updated.width),
         height: Number(updated.height),
         depth: Number(updated.depth),
-        parameters: (mergedParameters ?? existing.parameters) as Record<string, unknown>,
+        parameters: (parametersWasPatched ? nextParameters : existing.parameters) as Record<string, unknown>,
         material_thickness: 18,
       })
       .catch((err: unknown) => {

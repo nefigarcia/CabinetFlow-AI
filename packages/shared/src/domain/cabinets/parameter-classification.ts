@@ -2,40 +2,85 @@
 // the key should trigger a CAD geometry recompute + parts resync on the
 // API PATCH path.
 //
-// The problem this exists to solve:
-//   The PATCH route currently treats ANY `parameters` change as
-//   requiring recompute. That's correct for shelf count / drawer count
-//   / door count / construction profile, and it's WRONG for wall
-//   placement — moving a cabinet along a wall changes its position
-//   but not its manufactured parts. Blind recompute wastes a CAD service
-//   round-trip on every drag commit and, worse, races with the drag UX
-//   because syncParts may not return before the next drag starts.
+// Three-way classification (approved Phase 1 design):
 //
-// Design:
-//   · Placement-only keys (e.g. `wallPlacement`) never trigger recompute.
-//   · Every OTHER known parameter key — the ones the compileUnit /
-//     manufacturing math actually consumes — triggers recompute.
-//   · Unknown keys default to recompute. This is the safe default: if a
-//     new manufacturing-affecting parameter lands but this file isn't
-//     updated, the worst case is an extra CAD call, not a missed one.
+//   "placement"      — affects world/wall position ONLY. No CAD recompute.
+//                       Examples: wallPlacement.
+//   "metadata"       — neither position nor manufacturing (today). No CAD.
+//                       Examples: constructionProfileId, materialProfileId,
+//                       hardwareProfileId. Reclassified to "manufacturing"
+//                       when a later phase wires profiles into compileUnit.
+//   "manufacturing"  — affects parts / CAD geometry. Triggers recompute.
+//                       Examples: doorCount, drawerCount, shelfCount,
+//                       constructionMethod, dimensions.
 //
-// Change-detection is a shallow key-level compare between the merged
-// parameters and the previous parameters. That's the right granularity
-// because parameter values are either primitives (numbers, strings,
-// booleans) or opaque nested objects (like wallPlacement) that the
-// PATCH client always replaces whole.
+// Unknown keys default to "manufacturing" — the safe default: worst
+// case is an extra CAD call, not a missed one.
 
-/** Keys that should NEVER cause a CAD recompute when they change. */
-export const PLACEMENT_ONLY_PARAMETER_KEYS: readonly string[] = [
-  "wallPlacement",
-];
+export type ParameterImpact = "placement" | "metadata" | "manufacturing";
 
-const PLACEMENT_ONLY_SET = new Set(PLACEMENT_ONLY_PARAMETER_KEYS);
+/** Canonical classification. Unknown keys default to `manufacturing`. */
+export const PARAMETER_IMPACT: Readonly<Record<string, ParameterImpact>> = {
+  // ── placement ────────────────────────────────────────────────────
+  wallPlacement:         "placement",
+
+  // ── metadata (Phase 1 profile refs) ──────────────────────────────
+  constructionProfileId: "metadata",
+  materialProfileId:     "metadata",
+  hardwareProfileId:     "metadata",
+
+  // ── metadata (Phase 2 system refs + disableFamilyRule flag) ──────
+  // No CAD recompute triggered by any of these. Phase 2 is semantic /
+  // readiness only.
+  familyRuleId:          "metadata",
+  frontSystemId:         "metadata",
+  drawerSystemId:        "metadata",
+  disableFamilyRule:     "metadata",
+
+  // ── manufacturing (explicit, current) ────────────────────────────
+  // Listed for discoverability; classifier defaults unknown keys to
+  // manufacturing anyway.
+  doorCount:             "manufacturing",
+  drawerCount:           "manufacturing",
+  shelfCount:            "manufacturing",
+  toeKickHeight:         "manufacturing",
+  doorOverlay:           "manufacturing",
+  constructionMethod:    "manufacturing",
+  stileWidth:            "manufacturing",
+  railWidth:             "manufacturing",
+  faceFrameThickness:    "manufacturing",
+  blindPanelWidth:       "manufacturing",
+  hingeType:             "manufacturing",
+  drawerSlideType:       "manufacturing",
+};
+
+export function classifyParameterKey(key: string): ParameterImpact {
+  return PARAMETER_IMPACT[key] ?? "manufacturing";
+}
+
+// ─── Legacy back-compat: `PLACEMENT_ONLY_PARAMETER_KEYS` ────────────────────
+//
+// The prior classifier exposed a flat allowlist. Kept as a derived
+// readonly array so existing tests / consumers still resolve; the
+// classifier above is now the source of truth.
+
+export const PLACEMENT_ONLY_PARAMETER_KEYS: readonly string[] = Object.entries(
+  PARAMETER_IMPACT,
+)
+  .filter(([, kind]) => kind === "placement")
+  .map(([k]) => k);
+
+// ─── Diff + CAD-recompute decision ──────────────────────────────────────────
 
 /** Returns the set of top-level parameter keys whose values differ
- *  between `next` (the incoming patch) and `prev` (what's stored). Only
- *  keys present in `next` are considered — a caller that omits a key
- *  from the patch is not asking to change it. */
+ *  between `next` (the incoming patch OR merged final state) and
+ *  `prev` (what's stored). Only keys present in `next` are considered
+ *  — a caller that omits a key from the patch is not asking to change
+ *  it. When passed the FINAL merged parameters (post
+ *  `applyCabinetParametersPatch`), deletion of a key results in that
+ *  key being absent from `next` and thus not flagged — that's fine
+ *  because every deletable key today is classified as `placement` or
+ *  `metadata` (no CAD impact). */
 export function diffParameterKeys(
   prev: Record<string, unknown> | null | undefined,
   next: Record<string, unknown> | null | undefined,
@@ -50,16 +95,18 @@ export function diffParameterKeys(
   return changed;
 }
 
-/** True when any of the changed parameter keys is manufacturing-affecting
- *  (i.e. is NOT in the placement-only allowlist). Unknown keys count as
- *  manufacturing-affecting — safe default. */
+/** True when any of the changed parameter keys is classified as
+ *  `manufacturing`. Unknown keys count as manufacturing — safe default.
+ *  Callers should pass PREVIOUS-final vs NEXT-final parameters so
+ *  deletion of a deletable-key (profile ref / wallPlacement) is
+ *  correctly seen as a change but classified as placement / metadata. */
 export function doesParameterChangeRequireCadRecompute(
   prev: Record<string, unknown> | null | undefined,
   next: Record<string, unknown> | null | undefined,
 ): boolean {
   const changed = diffParameterKeys(prev, next);
   if (changed.length === 0) return false;
-  return changed.some((k) => !PLACEMENT_ONLY_SET.has(k));
+  return changed.some((k) => classifyParameterKey(k) === "manufacturing");
 }
 
 /** Shallow structural equality — good enough for the parameter bag
