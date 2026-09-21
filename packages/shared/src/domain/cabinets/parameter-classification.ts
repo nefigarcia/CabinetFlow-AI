@@ -37,6 +37,12 @@ export const PARAMETER_IMPACT: Readonly<Record<string, ParameterImpact>> = {
   drawerSystemId:        "metadata",
   disableFamilyRule:     "metadata",
 
+  // ── metadata (Phase 3.0 interior components) ─────────────────────
+  // Semantic-only intent — never wired into compileUnit / CAD / DXF /
+  // CNC / nesting / hardware BOM in Phase 3.0. PATCHes touching only
+  // this key MUST NOT trigger CAD recompute. Locked in by tests.
+  interiorComponents:    "metadata",
+
   // ── manufacturing (explicit, current) ────────────────────────────
   // Listed for discoverability; classifier defaults unknown keys to
   // manufacturing anyway.

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { PropertiesPanel } from "@/components/editor/PropertiesPanel";
 import { EffectiveProfileSection } from "./EffectiveProfileSection";
 import { CabinetSystemsSection } from "./CabinetSystemsSection";
+import { InteriorComponentsSection } from "./interior/InteriorComponentsSection";
 import { useEditorStore } from "@/store/editor";
 import type { ValidationReport } from "@/hooks/useCabinets";
 import { useCabinets } from "@/hooks/useCabinets";
@@ -493,6 +494,19 @@ export function CabinetInspector({
       {cabinet && (
         <div className="px-3 py-2" style={{ borderTop: "1px solid #1E2226" }}>
           <CabinetSystemsSection
+            projectId={projectId}
+            roomId={cabinet.roomId}
+            cabinetId={cabinet.id}
+          />
+        </div>
+      )}
+
+      {/* Interior Components (Phase 3.0) — typed accessory intent.
+          Metadata + non-blocking readiness only. Sibling to
+          CabinetSystemsSection; NOT embedded inside it. */}
+      {cabinet && (
+        <div className="px-3 py-2" style={{ borderTop: "1px solid #1E2226" }}>
+          <InteriorComponentsSection
             projectId={projectId}
             roomId={cabinet.roomId}
             cabinetId={cabinet.id}

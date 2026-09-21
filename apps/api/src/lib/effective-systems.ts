@@ -12,9 +12,11 @@ import {
   HARDWARE_FIELDS,
   ProfileInheritance,
   assertSameOrg,
+  evaluateInteriorComponentsReadiness,
   isDrawerSystemRelevant,
   pickFamilyRuleIdForType,
   readAssignmentsFromMetadata,
+  readInteriorComponents,
   resolveCabinetFamilyRule,
   resolveDrawerSystem,
   resolveFrontSystem,
@@ -26,6 +28,7 @@ import {
   type FrontSystemResolution,
   type FrontSystemRow,
   type HardwareResolutionOutput,
+  type InteriorReadinessIssue,
   type Phase2ReadinessCode,
 } from "@woodcraft/shared";
 import type { CabinetType } from "@woodcraft/shared";
@@ -45,6 +48,10 @@ export interface EffectiveSystemsPayload {
     severity: "warning";
     detail: string;
   }>;
+  /** Phase 3.0 — SEPARATE from Phase 2 `readiness`. The
+   *  InteriorComponentsSection renders its own summary; the Systems
+   *  section stays untouched. Never merge these two arrays. */
+  interiorReadiness: InteriorReadinessIssue[];
 }
 
 export async function buildEffectiveSystemsForCabinet(input: {
@@ -260,12 +267,28 @@ export async function buildEffectiveSystemsForCabinet(input: {
     });
   }
 
+  // ─── Phase 3.0 — interior components readiness (SEPARATE) ─────────
+  // Emitted as a distinct field so the Systems section presentation is
+  // untouched. UI reads `interiorReadiness` from the same endpoint.
+  const shelfCount = readPositiveInt(params, "shelfCount");
+  const interiorComponents = readInteriorComponents(params);
+  const interiorReadiness = evaluateInteriorComponentsReadiness({
+    cabinet: {
+      cabinetType: input.cabinetType,
+      doorCount,
+      drawerCount,
+      shelfCount,
+    },
+    components: interiorComponents,
+  });
+
   return {
     family,
     front,
     drawer,
     hardware,
     readiness,
+    interiorReadiness,
   };
 }
 

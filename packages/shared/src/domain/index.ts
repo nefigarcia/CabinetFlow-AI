@@ -350,3 +350,60 @@ export {
   type TenancyCheckResult,
   type VerificationStatus,
 } from "./profiles";
+
+// Interior Components domain (Phase 3.0). Typed intent for interior
+// accessories (rollouts, trash pullouts, dividers, hidden drawers,
+// spice racks, etc.). Metadata + readiness only — NEVER wired into
+// compileUnit, CAD service, syncParts, DXF, CNC, sheet nesting,
+// G-code, or calculateHardwareBom in Phase 3.0.
+export * as InteriorComponents from "./interiorComponents";
+export {
+  // vocabularies
+  INTERIOR_COMPONENT_TYPES,
+  INTERIOR_COMPONENT_VERIFICATION_STATUSES,
+  INTERIOR_READINESS_CODES,
+  INTERIOR_TARGET_KINDS,
+  // Zod schemas
+  cabinetInteriorComponentSchema,
+  cabinetInteriorComponentsArraySchema,
+  interiorComponentTargetSchema,
+  // engine
+  evaluateInteriorComponentsReadiness,
+  // patch helpers
+  INTERIOR_COMPONENTS_PARAM_KEY,
+  addInteriorComponent,
+  buildInteriorComponentsPatch,
+  readInteriorComponents,
+  removeInteriorComponent,
+  reorderInteriorComponents,
+  setInteriorComponentEnabled,
+  updateInteriorComponent,
+  // ID helper
+  isValidInteriorComponentId,
+  newInteriorComponentId,
+  // AI operation schema
+  assertUpdateOperationInvariant,
+  interiorComponentOperationSchema,
+  // types
+  type CabinetInteriorComponent,
+  type CabinetInteriorComponentsArray,
+  type CustomInteriorComponent,
+  type DrawerDividerComponent,
+  type HiddenDrawerComponent,
+  type InteriorCabinetContext,
+  type InteriorComponentOperation,
+  type InteriorComponentTarget,
+  type InteriorComponentType,
+  type InteriorComponentVerificationStatus,
+  type InteriorReadinessCode,
+  type InteriorReadinessIssue,
+  type InteriorTargetKind,
+  type KnifeOrganizerComponent,
+  type RolloutComponent,
+  type SinkPulloutComponent,
+  type SpiceRackComponent,
+  type SpongeTiltOutComponent,
+  type TrashPulloutComponent,
+  type TrayDividerComponent,
+  type UtensilDividerComponent,
+} from "./interiorComponents";
