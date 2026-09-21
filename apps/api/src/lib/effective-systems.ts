@@ -12,6 +12,7 @@ import {
   HARDWARE_FIELDS,
   ProfileInheritance,
   assertSameOrg,
+  isDrawerSystemRelevant,
   pickFamilyRuleIdForType,
   readAssignmentsFromMetadata,
   resolveCabinetFamilyRule,
@@ -185,6 +186,11 @@ export async function buildEffectiveSystemsForCabinet(input: {
       : null,
   });
 
+  // Counts used by BOTH readiness relevance + uncommon-combo detection.
+  const doorCount = readPositiveInt(params, "doorCount");
+  const drawerCount = readPositiveInt(params, "drawerCount");
+  void doorCount;
+
   // ─── Readiness codes ─────────────────────────────────────────────
   const readiness: EffectiveSystemsPayload["readiness"] = [];
   if (family.status === "unresolved") {
@@ -201,12 +207,27 @@ export async function buildEffectiveSystemsForCabinet(input: {
       detail: "No front system resolved.",
     });
   }
+  // DRAWER_SYSTEM_UNRESOLVED only fires when a drawer system is
+  // ACTUALLY relevant for this cabinet — otherwise a plain base cabinet
+  // with drawerCount=0 would surface a meaningless warning. The
+  // relevance predicate is the SAME one the Inspector uses to decide
+  // whether to render the drawer assignment control.
   if (drawer.status === "unresolved") {
-    readiness.push({
-      code: "DRAWER_SYSTEM_UNRESOLVED",
-      severity: "warning",
-      detail: "No drawer system resolved.",
+    const drawerRelevant = isDrawerSystemRelevant({
+      cabinetType: input.cabinetType,
+      drawerCount,
+      cabinetParams: params,
+      roomAssignments,
+      projectAssignments,
+      organizationAssignments,
     });
+    if (drawerRelevant) {
+      readiness.push({
+        code: "DRAWER_SYSTEM_UNRESOLVED",
+        severity: "warning",
+        detail: "No drawer system resolved.",
+      });
+    }
   }
   for (const r of hardware.readiness) {
     readiness.push({ code: r.code, severity: "warning", detail: r.detail });
@@ -214,8 +235,6 @@ export async function buildEffectiveSystemsForCabinet(input: {
 
   // ─── SYSTEM_UNCOMMON_COMBO — non-blocking flags for unusual pairings ───
   // Warning-only. Do NOT auto-correct or block PATCHes.
-  const doorCount = readPositiveInt(params, "doorCount");
-  const drawerCount = readPositiveInt(params, "drawerCount");
   const isDrawerCabinet =
     input.cabinetType === "drawer_base" || drawerCount > 0;
   if (front.system && input.cabinetType === "drawer_base" &&
@@ -240,8 +259,6 @@ export async function buildEffectiveSystemsForCabinet(input: {
       detail: "Front role='appliance_panel' combined with kind='bifold' is unusual — verify intent.",
     });
   }
-  // Sanity: unused variable references satisfy strict TS
-  void doorCount;
 
   return {
     family,

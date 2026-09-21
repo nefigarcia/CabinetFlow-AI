@@ -114,3 +114,9 @@ export {
   canManageOrganizationStandards,
   canReadCabinetSystems,
 } from "./authz";
+
+// Phase 2.1 readiness relevance predicate — drawer-system emission gate.
+export {
+  isDrawerSystemRelevant,
+  type DrawerRelevanceInput,
+} from "./readiness";

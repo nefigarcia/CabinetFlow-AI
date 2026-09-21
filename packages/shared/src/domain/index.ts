@@ -213,8 +213,11 @@ export {
   canAssignCabinetSystems,
   canManageOrganizationStandards,
   canReadCabinetSystems,
+  // readiness relevance
+  isDrawerSystemRelevant,
   // types
   type CabinetFamilyRuleCreateInput,
+  type DrawerRelevanceInput,
   type CabinetFamilyRuleField,
   type CabinetFamilyRuleFields,
   type CabinetFamilyRulePatchInput,
