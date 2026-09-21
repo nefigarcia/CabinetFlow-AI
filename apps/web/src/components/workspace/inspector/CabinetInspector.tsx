@@ -302,7 +302,13 @@ export function CabinetInspector({
   void chainNext; // reserved for a future one-click "Add another 600 mm base"
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    // Single primary scroll container for the ENTIRE Cabinet Inspector
+    // (Placement → Interior → Effective Profile → Cabinet Systems →
+    // PropertiesPanel body → Actions/Delete). Parent InspectorPanel
+    // provides bounded h-full via flex-1 min-h-0; this container
+    // provides overscroll-contain + overflow-y-auto. Do NOT nest a
+    // second overflow-auto inside any child section — that was the bug.
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
       {/* Above-the-fold: quick placement + layout + interior. Legacy
           PropertiesPanel sits below and keeps handling raw dimensions +
           parts + manufacturing validation. */}
@@ -494,19 +500,19 @@ export function CabinetInspector({
         </div>
       )}
 
-      {/* Existing manufacturing/parts panel — untouched */}
-      <div className="flex-1 min-h-0">
-        <PropertiesPanel
-          cabinet={cabinet}
-          saving={saving}
-          validating={validating}
-          validationReport={validationReport}
-          onSave={onSave}
-          onDelete={onDelete}
-          onValidate={onValidate}
-          onPreview={onPreview}
-        />
-      </div>
+      {/* Existing manufacturing/parts panel — flows naturally in the
+          parent scroll container. Its own internal chrome (header /
+          dimensions / parts / footer actions) stacks in place. */}
+      <PropertiesPanel
+        cabinet={cabinet}
+        saving={saving}
+        validating={validating}
+        validationReport={validationReport}
+        onSave={onSave}
+        onDelete={onDelete}
+        onValidate={onValidate}
+        onPreview={onPreview}
+      />
     </div>
   );
 }

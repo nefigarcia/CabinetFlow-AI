@@ -367,8 +367,10 @@ export function RoomsWorkspace({ projectId }: Props) {
               "rounded-t-2xl overflow-hidden",
               "transition-transform duration-300 ease-in-out",
               rightOpen ? "translate-y-0" : "translate-y-full",
-              // Desktop: static right column
-              "md:static md:h-auto md:rounded-none md:translate-y-0 md:z-auto md:transition-none",
+              // Desktop: static right column bounded by parent flex-1 min-h-0
+              // row. h-full (not h-auto) is required so the inspector can
+              // scroll independently instead of growing past the viewport.
+              "md:static md:h-full md:min-h-0 md:rounded-none md:translate-y-0 md:z-auto md:transition-none md:overflow-hidden",
             ].join(" ")}
           >
             <InspectorPanel

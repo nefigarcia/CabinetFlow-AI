@@ -107,8 +107,12 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
     800
   );
 
-  // Fills its parent container — positioning/chrome is owned by InspectorPanel.
-  const asideClass = "flex flex-col h-full w-full";
+  // Natural-flow section — the parent (CabinetInspector's scroll
+  // container) owns the primary vertical scroll. Do NOT re-introduce
+  // `h-full` or an internal `overflow-auto` here; that competed with
+  // the parent scroll and made Delete Cabinet unreachable on shorter
+  // viewports at 100% browser zoom.
+  const asideClass = "flex flex-col w-full";
 
   if (!cabinet) {
     return (
@@ -262,8 +266,8 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 relative flex flex-col">
-        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto p-4 space-y-5">
+      <div className="relative flex flex-col">
+        <div ref={scrollRef} className="p-4 space-y-5">
         {/* Dimensions — changes trigger constraint propagation */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
