@@ -21,9 +21,28 @@ import { recordSceneAssetLoaded } from "./sceneAssetLoadStatus";
 //     skeleton is deep-cloned correctly.
 //   · Compute a deterministic NORMALIZATION transform (using the shared
 //     `computeNormalizationTransform` pure math) so the model fits the
-//     catalog's declared dimensions with a bottom-center anchor, then
-//     apply it to the cloned scene's transform.
+//     catalog's declared dimensions with a bottom-center anchor.
 //   · Enable shadows on every mesh in the cloned scene.
+//
+// Scale composition (two DISTINCT scales must never be mixed on the
+// same object):
+//   1. INSTANCE scale — owned by SceneAssetInstance.scale, applied on
+//      the outer instance <group> in SceneAssetItem. TransformControls
+//      manipulates this and only this.
+//   2. NORMALIZATION scale — derived from the raw GLB bbox vs. catalog
+//      dims. Lives on an INTERMEDIATE <group> emitted by this loader,
+//      never on the cloned GLB scene root itself. This preserves the
+//      authored root transform of the GLB (which some exporters set to
+//      non-identity for unit / axis conventions).
+//
+// Rendered hierarchy:
+//   <group scale={instance.scale}>          // outer (SceneAssetItem)
+//     <group scale={t.scale}                // this loader
+//            position={t.offsetMeters}
+//            rotation={t.rotationRad}>
+//       <primitive object={cloneWithAuthoredTransformIntact} />
+//     </group>
+//   </group>
 //
 // This component MUST be rendered inside a React Suspense boundary — the
 // underlying `useGLTF` suspends while the GLB streams in. `SceneAssetItem`
@@ -60,9 +79,11 @@ export function SceneAssetLoader({ url, definition }: Props) {
   const { scene } = useGLTF(url);
 
   // Compute a fresh clone whenever the URL or definition normalization
-  // changes. Position/rotation/scale of the parent group are applied by
-  // `SceneAssetItem` — this component only owns the model-local transform.
-  const { normalized, meshCount, rawBbox, scale } = useMemo(() => {
+  // changes. The clone's OWN authored root transform is preserved — the
+  // normalization transform is emitted on an outer <group> in the JSX
+  // below. Position/rotation/scale of the OUTER instance group are
+  // applied by `SceneAssetItem`.
+  const { modelObject, normalization, meshCount, rawBbox } = useMemo(() => {
     const clone = cloneSceneSafe(scene);
 
     let meshes = 0;
@@ -77,6 +98,11 @@ export function SceneAssetLoader({ url, definition }: Props) {
 
     // Compute normalization from the CLONED bbox (some GLBs alter their
     // bbox during animation setup; the raw scene value can be stale).
+    // The bbox reflects the clone's authored root transform because
+    // `setFromObject` uses matrixWorld; that's what we want, because
+    // `computeNormalizationTransform` returns a multiplier that will be
+    // applied by our OUTER <group> — the authored transform stays on
+    // the clone itself and is composed correctly in the scene graph.
     const box = new THREE.Box3().setFromObject(clone);
     const raw = {
       min: { x: box.min.x, y: box.min.y, z: box.min.z },
@@ -84,13 +110,18 @@ export function SceneAssetLoader({ url, definition }: Props) {
     };
     const t = computeNormalizationTransform(raw, definition);
 
-    // Apply as clone's own transform. Scaling is uniform (single scalar).
-    clone.scale.setScalar(t.scale);
-    clone.position.set(t.offsetMeters.x, t.offsetMeters.y, t.offsetMeters.z);
-    clone.rotation.set(t.rotationRad.x, t.rotationRad.y, t.rotationRad.z);
-
-    return { normalized: clone, meshCount: meshes, rawBbox: raw, scale: t.scale };
+    return {
+      modelObject: clone,
+      normalization: t,
+      meshCount: meshes,
+      rawBbox: raw,
+    };
   }, [scene, definition]);
+
+  // Alias for load-status reporting + display below. The single scalar
+  // normalization ratio; the loader reports this as the "normalization
+  // scale" so downstream diagnostics stay unchanged.
+  const scale = normalization.scale;
 
   // Record success into the dev-only load-status registry so the
   // inspector can distinguish "real GLB rendered" from "primitive
@@ -116,16 +147,32 @@ export function SceneAssetLoader({ url, definition }: Props) {
   // GLB itself; we only own the clone's THREE.Group.
   useEffect(() => {
     return () => {
-      normalized.traverse((child) => {
+      modelObject.traverse((child) => {
         const mesh = child as THREE.Mesh;
         if (mesh.isMesh) {
           mesh.geometry?.dispose?.();
         }
       });
     };
-  }, [normalized]);
+  }, [modelObject]);
 
-  return <primitive object={normalized} />;
+  return (
+    <group
+      position={[
+        normalization.offsetMeters.x,
+        normalization.offsetMeters.y,
+        normalization.offsetMeters.z,
+      ]}
+      rotation={[
+        normalization.rotationRad.x,
+        normalization.rotationRad.y,
+        normalization.rotationRad.z,
+      ]}
+      scale={normalization.scale}
+    >
+      <primitive object={modelObject} />
+    </group>
+  );
 }
 
 /** Optional preload — call from a container that knows an asset will
