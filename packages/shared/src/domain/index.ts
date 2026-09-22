@@ -384,6 +384,9 @@ export {
   // AI operation schema
   assertUpdateOperationInvariant,
   interiorComponentOperationSchema,
+  // server-side incoming-parameters validation
+  validateIncomingCabinetParameters,
+  type IncomingParametersValidationResult,
   // types
   type CabinetInteriorComponent,
   type CabinetInteriorComponentsArray,

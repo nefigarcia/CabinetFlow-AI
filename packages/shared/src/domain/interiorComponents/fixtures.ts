@@ -1,12 +1,14 @@
 // Phase 3.0 evidence-based fixtures.
 //
-// STRICT provenance rule (per §B): every value here is either present
-// in the referenced source document or omitted. No fabricated
-// quantities. No manufactured target indices. Unknown = unset.
+// STRICT provenance rule (per §B and correction §5): every value here
+// is either present in the referenced source document or omitted. No
+// fabricated quantities. No manufactured target indices. Unknown = unset.
 //
-// The `sourceRef` strings use the actual repo convention for the Bibb
-// source doc (see prior audit turns). If future doc revisions bump the
-// filename, update in one place here.
+// sourceRef precision:
+//   · If the exact PDF page is known and stable, cite it.
+//     e.g. "Bibb Cabinetry Layouts 8_24_26 x2.pdf — PDF page 2".
+//   · If page number is uncertain, cite the document + the exact
+//     quoted feature string from the source. Do NOT guess a page.
 //
 // IDs are placeholders — real-world usage generates via
 // `newInteriorComponentId()` at add time. Tests can assert the fixture
@@ -16,6 +18,18 @@ import type { CabinetInteriorComponent } from "./types";
 
 const BIBB_SOURCE = "Bibb Cabinetry Layouts 8_24_26 x2.pdf";
 const KLINT_SOURCE = "Klint Anderson Build Sheets 09/04/26";
+
+// Per correction §5, Fixture A's evidence is on Bibb page 2.
+const BIBB_PAGE_2 = `${BIBB_SOURCE} — PDF page 2`;
+// Page numbers for Fixture B (island/sink) and Fixture C (pullout) are
+// uncertain from the available audit context — cite the document + the
+// exact quoted feature line the source uses rather than guessing.
+function bibbQuote(feature: string): string {
+  return `${BIBB_SOURCE} — "${feature}"`;
+}
+function klintQuote(feature: string): string {
+  return `${KLINT_SOURCE} — "${feature}"`;
+}
 
 // ─── Fixture A — Bibb spice / knife cabinet ─────────────────────────
 //
@@ -29,14 +43,14 @@ export const BIBB_FIXTURE_A: CabinetInteriorComponent[] = [
     type: "spice_rack",
     enabled: true,
     location: "interior",
-    sourceRef: BIBB_SOURCE,
+    sourceRef: BIBB_PAGE_2,
     verificationStatus: "verified",
   },
   {
     id: "fixture-a-knife",
     type: "knife_organizer",
     enabled: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: BIBB_PAGE_2,
     verificationStatus: "verified",
     // No target: source does not specify which drawer.
   },
@@ -45,7 +59,7 @@ export const BIBB_FIXTURE_A: CabinetInteriorComponent[] = [
     type: "hidden_drawer",
     enabled: true,
     location: "inside_cabinet",
-    sourceRef: BIBB_SOURCE,
+    sourceRef: BIBB_PAGE_2,
     verificationStatus: "verified",
   },
   {
@@ -53,7 +67,7 @@ export const BIBB_FIXTURE_A: CabinetInteriorComponent[] = [
     type: "drawer_divider",
     enabled: true,
     removable: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: BIBB_PAGE_2,
     verificationStatus: "verified",
     // No target index — source lists "Removable dividers" generically.
   },
@@ -61,7 +75,7 @@ export const BIBB_FIXTURE_A: CabinetInteriorComponent[] = [
     id: "fixture-a-utensil",
     type: "utensil_divider",
     enabled: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: BIBB_PAGE_2,
     verificationStatus: "verified",
   },
 ];
@@ -79,14 +93,14 @@ export const BIBB_FIXTURE_B_SINK: CabinetInteriorComponent[] = [
     id: "fixture-b-sponge",
     type: "sponge_tilt_out",
     enabled: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Tilt out for Sponges"),
     verificationStatus: "verified",
   },
   {
     id: "fixture-b-sink-pullout",
     type: "sink_pullout",
     enabled: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Pull out under sink"),
     verificationStatus: "verified",
   },
 ];
@@ -99,7 +113,7 @@ export const BIBB_FIXTURE_B_ISLAND: CabinetInteriorComponent[] = [
     bins: 2,                          // "DBL" is explicit
     nominalBinSizeQt: 35,             // "35 Qt" is explicit
     configuration: "double",
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("DBL 35 Qt Trash"),
     verificationStatus: "verified",
   },
   {
@@ -107,7 +121,7 @@ export const BIBB_FIXTURE_B_ISLAND: CabinetInteriorComponent[] = [
     type: "tray_divider",
     enabled: true,
     label: "Baking trays",
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Baking trays"),
     verificationStatus: "verified",
     // No quantity: source lists "Baking trays" without count.
   },
@@ -117,7 +131,7 @@ export const BIBB_FIXTURE_B_ISLAND: CabinetInteriorComponent[] = [
     enabled: true,
     location: "above_trash",
     label: "Hidden small drawer above trash",
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Hidden small drawer above trash"),
     verificationStatus: "verified",
   },
 ];
@@ -134,7 +148,7 @@ export const BIBB_FIXTURE_C: CabinetInteriorComponent[] = [
     type: "rollout",
     enabled: true,
     openSides: true,                  // explicit: "Pull out with open sides"
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Pull out with open sides"),
     verificationStatus: "verified",
     // No quantity: source does not specify.
   },
@@ -144,14 +158,14 @@ export const BIBB_FIXTURE_C: CabinetInteriorComponent[] = [
     enabled: true,
     location: "inside_cabinet",
     label: "Small hidden drawer inside",
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Small hidden drawer inside"),
     verificationStatus: "verified",
   },
   {
     id: "fixture-c-dividers",
     type: "drawer_divider",
     enabled: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Dividers in drawers"),
     verificationStatus: "verified",
   },
   {
@@ -159,7 +173,7 @@ export const BIBB_FIXTURE_C: CabinetInteriorComponent[] = [
     type: "drawer_divider",
     enabled: true,
     removable: true,
-    sourceRef: BIBB_SOURCE,
+    sourceRef: bibbQuote("Removable dividers"),
     verificationStatus: "verified",
   },
 ];
@@ -176,7 +190,10 @@ export const KLINT_ROLLOUT_FIXTURE: CabinetInteriorComponent[] = [
     id: "fixture-klint-rollout",
     type: "rollout",
     enabled: true,
-    sourceRef: KLINT_SOURCE,
+    // Klint build-sheet assembly IDs / page numbers are not captured
+    // in the shared audit context — cite the exact source lines
+    // instead of guessing a page.
+    sourceRef: klintQuote("Roll Out Bottom; Roll Out Back"),
     verificationStatus: "verified",
     // No quantity, no openSides — source does not evidence either.
   },

@@ -60,6 +60,11 @@ export {
 } from "./ai-operations";
 
 export {
+  validateIncomingCabinetParameters,
+  type IncomingParametersValidationResult,
+} from "./server-validation";
+
+export {
   BIBB_FIXTURE_A,
   BIBB_FIXTURE_B_ISLAND,
   BIBB_FIXTURE_B_SINK,

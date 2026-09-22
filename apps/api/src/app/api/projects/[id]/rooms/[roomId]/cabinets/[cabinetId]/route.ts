@@ -12,6 +12,7 @@ import {
   assertSystemBelongsToOrg,
   doesParameterChangeRequireCadRecompute,
   ProfileInheritance,
+  validateIncomingCabinetParameters,
 } from "@woodcraft/shared";
 import {
   canAssignCabinetSystems,
@@ -58,6 +59,18 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const parsed = parseBody(updateCabinetSchema, body);
   if (!parsed.success) return apiError(parsed.error, 422, "VALIDATION_ERROR");
 
+  // ── Phase 3.0 — deep validation of interiorComponents ────────────────────
+  // updateCabinetSchema's `parameters` is `z.record(z.any())` and cannot
+  // discriminate the interior-component union. If the incoming patch
+  // contains `interiorComponents`, run it through the strict shared
+  // discriminated-union schema (rejects unknown discriminants, missing
+  // required fields, duplicate IDs, cross-type extra fields, null value).
+  // Sanitized parameters replace the raw ones going into
+  // applyCabinetParametersPatch.
+  const validated = validateIncomingCabinetParameters(parsed.data.parameters);
+  if (!validated.ok) return apiError(validated.error, 422, "VALIDATION_ERROR");
+  const sanitizedIncomingParams = validated.parameters;
+
   const existing = await findCabinet(params.cabinetId, params.roomId, params.id, orgId);
   if (!existing) return apiError("Cabinet not found", 404);
 
@@ -70,17 +83,19 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // Uses the shared `applyCabinetParametersPatch` helper so profile-ref
   // and wallPlacement deletion (`null` in patch) correctly REMOVE keys
   // from the JSON bag. Prior inline shallow-spread pattern is retired.
-  const parametersWasPatched = parsed.data.parameters !== undefined;
+  const parametersWasPatched = sanitizedIncomingParams !== undefined;
   const existingParameters = existing.parameters as Record<string, unknown>;
   const nextParameters = applyCabinetParametersPatch(
     existingParameters,
-    parsed.data.parameters,
+    sanitizedIncomingParams,
   );
 
   // ── Tenancy: any non-null profile ref in the patch must belong to org ─────
   // Deletions (`null`) skip the lookup by design. Rejection returns 404
-  // uniformly — no metadata leak about cross-org profiles.
-  const incomingParams: Record<string, unknown> | undefined = parsed.data.parameters;
+  // uniformly — no metadata leak about cross-org profiles. We read from
+  // the SANITIZED incoming parameters so any Zod-normalized shape is
+  // reflected here too.
+  const incomingParams: Record<string, unknown> | undefined = sanitizedIncomingParams;
   if (incomingParams) {
     for (const key of CABINET_PROFILE_REF_KEYS) {
       const value = incomingParams[key];

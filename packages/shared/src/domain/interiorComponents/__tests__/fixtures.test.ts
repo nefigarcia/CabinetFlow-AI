@@ -33,9 +33,10 @@ describe("Bibb Fixture A — spice/knife cabinet", () => {
       "utensil_divider",
     ]);
   });
-  it("all components carry a Bibb sourceRef (verified provenance)", () => {
+  it("every component carries a specific PDF-page sourceRef (Bibb page 2)", () => {
     for (const c of BIBB_FIXTURE_A) {
-      expect(c.sourceRef).toMatch(/Bibb Cabinetry Layouts/);
+      expect(c.sourceRef).toContain("Bibb Cabinetry Layouts 8_24_26 x2.pdf");
+      expect(c.sourceRef).toContain("PDF page 2");
       expect(c.verificationStatus).toBe("verified");
     }
   });
