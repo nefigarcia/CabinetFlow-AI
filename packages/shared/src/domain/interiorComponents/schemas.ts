@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { INTERIOR_COMPONENT_VERIFICATION_STATUSES } from "./types";
-import type { CabinetInteriorComponent, InteriorComponentTarget } from "./types";
+import type {
+  CabinetInteriorComponent,
+  InteriorComponentTarget,
+  StandaloneInteriorComponent,
+} from "./types";
 
 // Phase 3.0 Zod schemas — strict discriminated union.
 //
@@ -163,9 +167,9 @@ const customInteriorComponentSchema = z
   })
   .strict();
 
-// ─── The union ──────────────────────────────────────────────────────
+// ─── The standalone union (Phase 3.0 contract, unchanged) ───────────
 
-export const cabinetInteriorComponentSchema: z.ZodType<CabinetInteriorComponent> =
+export const standaloneInteriorComponentSchema: z.ZodType<StandaloneInteriorComponent> =
   z.discriminatedUnion("type", [
     rolloutSchema,
     trashPulloutSchema,
@@ -179,6 +183,76 @@ export const cabinetInteriorComponentSchema: z.ZodType<CabinetInteriorComponent>
     spongeTiltOutSchema,
     customInteriorComponentSchema,
   ]);
+
+// ─── Linked variants (Phase 3.1a — structural READ compatibility) ───
+//
+// DERIVED from the standalone schemas so the two can never drift:
+// `.partial()` makes every field optional (a linked component stores
+// only overrides; `label` becomes optional even for `custom`), then the
+// identity fields + `definitionId` are re-required. `.strict()` survives
+// `.partial()` / `.extend()`, so cross-type keys are still rejected.
+//
+// Parsing a linked component is NOT permission to write one — Phase
+// 3.1a rejects any new/changed definitionId at the write-policy layer
+// (server-validation.ts).
+
+export const INTERIOR_DEFINITION_ID_MAX_LENGTH = 191;
+
+const definitionIdSchema = z.string().min(1).max(INTERIOR_DEFINITION_ID_MAX_LENGTH);
+
+const linkedIdentity = {
+  id: baseFields.id,
+  enabled: baseFields.enabled,
+  definitionId: definitionIdSchema,
+};
+
+export const linkedInteriorComponentSchema = z.discriminatedUnion("type", [
+  rolloutSchema.partial().extend({ ...linkedIdentity, type: z.literal("rollout") }),
+  trashPulloutSchema.partial().extend({ ...linkedIdentity, type: z.literal("trash_pullout") }),
+  trayDividerSchema.partial().extend({ ...linkedIdentity, type: z.literal("tray_divider") }),
+  spiceRackSchema.partial().extend({ ...linkedIdentity, type: z.literal("spice_rack") }),
+  knifeOrganizerSchema.partial().extend({ ...linkedIdentity, type: z.literal("knife_organizer") }),
+  utensilDividerSchema.partial().extend({ ...linkedIdentity, type: z.literal("utensil_divider") }),
+  drawerDividerSchema.partial().extend({ ...linkedIdentity, type: z.literal("drawer_divider") }),
+  hiddenDrawerSchema.partial().extend({ ...linkedIdentity, type: z.literal("hidden_drawer") }),
+  sinkPulloutSchema.partial().extend({ ...linkedIdentity, type: z.literal("sink_pullout") }),
+  spongeTiltOutSchema.partial().extend({ ...linkedIdentity, type: z.literal("sponge_tilt_out") }),
+  customInteriorComponentSchema.partial().extend({ ...linkedIdentity, type: z.literal("custom") }),
+]);
+
+/** True when the raw value claims to be a linked component (has an own
+ *  `definitionId` key, whatever its value). Such values are parsed by
+ *  the linked branch — so `definitionId: ""` is rejected there rather
+ *  than slipping into the standalone branch. */
+export function hasDefinitionIdKey(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, "definitionId")
+  );
+}
+
+// ─── The component schema (dispatches standalone vs linked) ─────────
+//
+// Branch selection is by presence of `definitionId`, so standalone
+// components get EXACTLY the Phase 3.0 validation and error messages
+// (no z.union "Invalid input" degradation).
+
+export const cabinetInteriorComponentSchema: z.ZodType<
+  CabinetInteriorComponent,
+  z.ZodTypeDef,
+  unknown
+> = z.unknown().transform((value, ctx) => {
+  const result = hasDefinitionIdKey(value)
+    ? linkedInteriorComponentSchema.safeParse(value)
+    : standaloneInteriorComponentSchema.safeParse(value);
+  if (!result.success) {
+    for (const issue of result.error.issues) ctx.addIssue(issue);
+    return z.NEVER;
+  }
+  return result.data as CabinetInteriorComponent;
+});
 
 /** The persisted array shape. `null` is rejected — an empty array
  *  clears components; omitting the key preserves them. Enforced with

@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateRoomSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canAssignCabinetSystems,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; roomId: string } };
 
@@ -43,7 +48,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  // Cascade-deletes every cabinet in the room (a superset of cabinet
+  // DELETE) — same cabinet-mutation permission. Viewers forbidden.
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   if (!await findRoom(params.roomId, params.id, orgId)) return apiError("Room not found", 404);
 

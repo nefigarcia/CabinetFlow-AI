@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import {
+  canAssignCabinetSystems,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
+import {
   snapshotPartToPrismaData,
   type LegacySnapshotPart,
 } from "@woodcraft/shared";
@@ -35,7 +40,19 @@ interface SnapshotCabinet {
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!orgId) return apiError("Unauthorized", 401);
+  // Restore rewrites every room/cabinet/part in the project — same
+  // cabinet-mutation permission as Cabinet POST/PATCH (owner/admin/
+  // designer). Viewers are forbidden.
+  //
+  // The snapshot itself is restored VERBATIM below: historical
+  // `parameters` (including any interiorComponents / definitionId the
+  // current schema may not understand) are never re-validated or
+  // normalized — that would rewrite history.
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const revision = await prisma.revision.findFirst({
     where: { id: params.revisionId, projectId: params.id, orgId },

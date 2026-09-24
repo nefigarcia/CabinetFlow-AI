@@ -16,7 +16,7 @@ import {
   isDrawerSystemRelevant,
   pickFamilyRuleIdForType,
   readAssignmentsFromMetadata,
-  readInteriorComponents,
+  readInteriorComponentsSafe,
   resolveCabinetFamilyRule,
   resolveDrawerSystem,
   resolveFrontSystem,
@@ -271,16 +271,22 @@ export async function buildEffectiveSystemsForCabinet(input: {
   // Emitted as a distinct field so the Systems section presentation is
   // untouched. UI reads `interiorReadiness` from the same endpoint.
   const shelfCount = readPositiveInt(params, "shelfCount");
-  const interiorComponents = readInteriorComponents(params);
-  const interiorReadiness = evaluateInteriorComponentsReadiness({
-    cabinet: {
-      cabinetType: input.cabinetType,
-      doorCount,
-      drawerCount,
-      shelfCount,
-    },
-    components: interiorComponents,
-  });
+  // Read-only consumer: an unreadable stored value yields no interior
+  // readiness (the Inspector renders its own "cannot be safely read"
+  // state from the cabinet payload). Never treated as an editable [].
+  const interiorRead = readInteriorComponentsSafe(params);
+  const interiorReadiness =
+    interiorRead.status === "ok"
+      ? evaluateInteriorComponentsReadiness({
+          cabinet: {
+            cabinetType: input.cabinetType,
+            doorCount,
+            drawerCount,
+            shelfCount,
+          },
+          components: interiorRead.components,
+        })
+      : [];
 
   return {
     family,

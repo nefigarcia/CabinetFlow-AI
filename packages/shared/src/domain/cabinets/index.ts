@@ -64,6 +64,12 @@ export {
   isDeletableCabinetParameterKey,
 } from "./parameters-patch";
 
+export type {
+  CabinetParameterRefLookup,
+  CabinetParametersWriteResult,
+} from "./parameter-write-gate";
+export { gateCabinetParametersWrite } from "./parameter-write-gate";
+
 export type { SnapResult, SnapTarget } from "./wall-drag";
 export {
   DEFAULT_SNAP_TOLERANCE_MM,

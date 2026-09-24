@@ -158,14 +158,24 @@ const ROUTE_PATH = resolve(
   "../../../../../../apps/api/src/app/api/projects/[id]/rooms/[roomId]/cabinets/[cabinetId]/route.ts",
 );
 
+// Phase 3.1a: the PATCH route no longer calls the helper inline — it
+// calls the shared `gateCabinetParametersWrite`, which runs this helper
+// first (proven behaviorally in cabinets/__tests__/parameter-write-gate
+// .test.ts) and is shared with Cabinet POST.
+const GATE_PATH = resolve(HERE, "../../cabinets/parameter-write-gate.ts");
+
 describe("Cabinet PATCH route → helper wiring", () => {
-  it("imports validateIncomingCabinetParameters", () => {
-    const src = readFileSync(ROUTE_PATH, "utf8");
-    expect(src).toContain("validateIncomingCabinetParameters");
+  it("the shared write gate calls validateIncomingCabinetParameters with stored parameters", () => {
+    const src = readFileSync(GATE_PATH, "utf8");
+    expect(src).toMatch(
+      /validateIncomingCabinetParameters\s*\(\s*input\.parameters\s*,\s*\{\s*existingParameters:\s*input\.existingParameters/,
+    );
   });
-  it("calls the helper inside the PATCH handler (invokes .ok / .error branch)", () => {
+  it("PATCH calls the gate with the raw incoming parameters + the stored parameters (invokes .ok / .error branch)", () => {
     const src = readFileSync(ROUTE_PATH, "utf8");
-    expect(src).toMatch(/validateIncomingCabinetParameters\s*\(\s*parsed\.data\.parameters\s*\)/);
-    expect(src).toMatch(/validated\.ok/);
+    expect(src).toMatch(/gateCabinetParametersWrite\s*\(\s*\{[^}]*parameters:\s*parsed\.data\.parameters/s);
+    expect(src).toMatch(/gateCabinetParametersWrite\s*\(\s*\{[^}]*existingParameters/s);
+    expect(src).toMatch(/gate\.ok/);
+    expect(src).not.toContain("validateIncomingCabinetParameters");
   });
 });

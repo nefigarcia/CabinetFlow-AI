@@ -6,6 +6,13 @@ import { cadService } from "@/lib/services";
 import { syncParts } from "@/lib/parts";
 import { apiError, ok } from "@/lib/errors";
 import type { Prisma } from "@woodcraft/db";
+import { gateCabinetParametersWrite } from "@woodcraft/shared";
+import { prismaCabinetParameterRefLookup } from "@/lib/cabinet-parameters";
+import {
+  canAssignCabinetSystems,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type CabinetWithParts = Prisma.CabinetGetPayload<{
   include: { parts: true; material: true };
@@ -56,7 +63,13 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!orgId) return apiError("Unauthorized", 401);
+  // Same cabinet-mutation role semantics as Cabinet PATCH:
+  // owner/admin/designer allowed, viewer forbidden.
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   if (!await assertRoom(params.roomId, params.id, orgId)) {
     return apiError("Room not found", 404);
@@ -74,10 +87,27 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!mat) return apiError("Material not found", 404);
   }
 
+  // ── Canonical Cabinet.parameters write gate (shared with PATCH) ───────────
+  // createCabinetSchema's `parameters` is `z.record(z.any())`. No stored
+  // parameters exist on create, so the Phase 3.1a policy rejects ANY
+  // definitionId (fail-closed).
+  const gate = await gateCabinetParametersWrite({
+    orgId,
+    cabinetType: parsed.data.type,
+    parameters: parsed.data.parameters,
+    lookup: prismaCabinetParameterRefLookup,
+  });
+  if (!gate.ok) return apiError(gate.error, gate.status, gate.code);
+
   // Create the cabinet record first
   const cabinet = await prisma.cabinet.create({
+    data: {
+      ...parsed.data,
+      parameters: gate.parameters ?? {},
+      roomId: params.roomId,
+      orgId,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    data: { ...parsed.data, roomId: params.roomId, orgId } as any,
+    } as any,
   });
 
   // Call cad-service to compute initial parts (non-fatal if unavailable)

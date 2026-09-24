@@ -13,10 +13,12 @@ export type {
   InteriorReadinessIssue,
   InteriorTargetKind,
   KnifeOrganizerComponent,
+  LinkedInteriorComponent,
   RolloutComponent,
   SinkPulloutComponent,
   SpiceRackComponent,
   SpongeTiltOutComponent,
+  StandaloneInteriorComponent,
   TrashPulloutComponent,
   TrayDividerComponent,
   UtensilDividerComponent,
@@ -29,9 +31,12 @@ export {
 } from "./types";
 
 export {
+  INTERIOR_DEFINITION_ID_MAX_LENGTH,
   cabinetInteriorComponentSchema,
   cabinetInteriorComponentsArraySchema,
   interiorComponentTargetSchema,
+  linkedInteriorComponentSchema,
+  standaloneInteriorComponentSchema,
   type CabinetInteriorComponentsArray,
 } from "./schemas";
 
@@ -46,11 +51,13 @@ export {
   INTERIOR_COMPONENTS_PARAM_KEY,
   addInteriorComponent,
   buildInteriorComponentsPatch,
-  readInteriorComponents,
+  isLinkedInteriorComponent,
+  readInteriorComponentsSafe,
   removeInteriorComponent,
   reorderInteriorComponents,
   setInteriorComponentEnabled,
   updateInteriorComponent,
+  type InteriorComponentsReadResult,
 } from "./patch";
 
 export {
@@ -60,8 +67,11 @@ export {
 } from "./ai-operations";
 
 export {
+  enforceInteriorComponentsWritePolicy,
   validateIncomingCabinetParameters,
+  type IncomingParametersValidationOptions,
   type IncomingParametersValidationResult,
+  type InteriorWritePolicyResult,
 } from "./server-validation";
 
 export {

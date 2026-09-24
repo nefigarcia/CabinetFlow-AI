@@ -20,7 +20,8 @@ import { canAssignCabinetSystems } from "@/lib/authz";
 import {
   addInteriorComponent,
   buildInteriorComponentsPatch,
-  readInteriorComponents,
+  isLinkedInteriorComponent,
+  readInteriorComponentsSafe,
   removeInteriorComponent,
   reorderInteriorComponents,
   setInteriorComponentEnabled,
@@ -28,6 +29,7 @@ import {
   type CabinetInteriorComponent,
   type InteriorCabinetContext,
   type InteriorReadinessIssue,
+  type StandaloneInteriorComponent,
 } from "@woodcraft/shared";
 import type { CabinetType } from "@woodcraft/shared";
 import { InteriorComponentEditor } from "./InteriorComponentEditor";
@@ -56,16 +58,28 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<CabinetInteriorComponent | null>(null);
+  const [editing, setEditing] = useState<StandaloneInteriorComponent | null>(null);
   const [creating, setCreating] = useState(false);
 
   const role = useAuthStore((s) => s.user?.role);
   const canEdit = canAssignCabinetSystems(role);
 
-  const components = useMemo(
-    () => readInteriorComponents(cabinet?.parameters),
+  // Phase 3.1a safe read. `unreadable` is NEVER treated as an empty list:
+  // every Add/Edit/Remove/reorder/toggle PATCHes the WHOLE array, so an
+  // empty-looking list over real stored data would destroy it.
+  const readResult = useMemo(
+    () => readInteriorComponentsSafe(cabinet?.parameters),
     [cabinet?.parameters],
   );
+  const components = useMemo(
+    () => (readResult.status === "ok" ? readResult.components : []),
+    [readResult],
+  );
+  // Components linked to a shop standard come from a newer version
+  // (3.1b+). This version cannot resolve them, so the whole array is
+  // read-only — the server enforces the same rule independently.
+  const hasLinked = components.some(isLinkedInteriorComponent);
+  const canMutate = canEdit && readResult.status === "ok" && !hasLinked;
 
   const cabinetCtx: InteriorCabinetContext | null = useMemo(() => {
     if (!cabinet) return null;
@@ -117,6 +131,8 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
 
   const patchArray = useCallback(
     async (nextArray: CabinetInteriorComponent[]) => {
+      // Defense in depth — no control renders when !canMutate.
+      if (!canMutate) return;
       setSaving(true);
       setSaveError(null);
       try {
@@ -132,7 +148,7 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
         setSaving(false);
       }
     },
-    [projectId, roomId, cabinetId, refetchReadiness],
+    [projectId, roomId, cabinetId, refetchReadiness, canMutate],
   );
 
   const handleAdd = useCallback(
@@ -194,18 +210,33 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
   }
   if (!cabinet || !cabinetCtx) return null;
 
+  if (readResult.status === "unreadable") {
+    return (
+      <section>
+        <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">Interior Components</p>
+        <div
+          className="rounded-md px-2 py-1.5 text-[11px]"
+          style={{ background: "rgba(200,133,42,0.08)", border: "1px solid #6a5828", color: "#c8852a" }}
+        >
+          Interior components cannot be safely read by this version. They have been left
+          unchanged; editing is disabled.
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section>
       <div className="flex items-center justify-between mb-2">
         <p className="text-gray-400 text-xs uppercase tracking-wider">
           Interior Components
-          {!canEdit && (
+          {!canMutate && (
             <span className="ml-2 text-[9px] normal-case tracking-normal" style={{ color: "#8b96a8" }}>
               · read-only
             </span>
           )}
         </p>
-        {canEdit && (
+        {canMutate && (
           <button
             onClick={() => setCreating(true)}
             disabled={saving}
@@ -215,6 +246,16 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
           </button>
         )}
       </div>
+
+      {hasLinked && (
+        <div
+          className="mb-2 rounded-md px-2 py-1.5 text-[11px]"
+          style={{ background: "rgba(200,133,42,0.08)", border: "1px solid #6a5828", color: "#c8852a" }}
+        >
+          This cabinet uses linked shop standards from a newer version. They are shown
+          as stored and cannot be edited here.
+        </div>
+      )}
 
       {components.length === 0 ? (
         <p className="text-[11px] text-gray-600">No interior components yet.</p>
@@ -235,10 +276,15 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
                         · disabled
                       </span>
                     )}
+                    {isLinkedInteriorComponent(c) && (
+                      <span className="ml-1.5 text-[9px] uppercase tracking-wider" style={{ color: "#c8852a" }}>
+                        · linked standard unavailable
+                      </span>
+                    )}
                   </p>
                   <p className="text-gray-500 text-[10px] mt-0.5">{summarize(c)}</p>
                 </div>
-                {canEdit && (
+                {canMutate && (
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
                       onClick={() => void handleMove(c.id, -1)}
@@ -264,7 +310,9 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
                       {c.enabled ? "Disable" : "Enable"}
                     </button>
                     <button
-                      onClick={() => setEditing(c)}
+                      onClick={() => {
+                        if (!isLinkedInteriorComponent(c)) setEditing(c);
+                      }}
                       disabled={saving}
                       className="text-[10px] text-gray-500 hover:text-white underline underline-offset-2"
                     >
@@ -317,7 +365,7 @@ export function InteriorComponentsSection({ projectId, roomId, cabinetId }: Prop
         </div>
       )}
 
-      {(creating || editing) && cabinetCtx && (
+      {canMutate && (creating || editing) && cabinetCtx && (
         <InteriorComponentEditor
           initial={editing}
           cabinet={cabinetCtx}
@@ -350,11 +398,10 @@ function summarize(c: CabinetInteriorComponent): string {
       if (c.openSides) parts.push("open sides");
       break;
     case "trash_pullout":
-      parts.push(
-        c.configuration
-          ? `${c.configuration}`
-          : `${c.bins} bin${c.bins === 1 ? "" : "s"}`,
-      );
+      // `bins` is always present on standalone components; a linked one
+      // stores overrides only and may omit it.
+      if (c.configuration) parts.push(`${c.configuration}`);
+      else if (c.bins != null) parts.push(`${c.bins} bin${c.bins === 1 ? "" : "s"}`);
       if (c.nominalBinSizeQt != null) parts.push(`${c.nominalBinSizeQt} qt`);
       break;
     case "tray_divider":

@@ -22,6 +22,7 @@ import {
   type InteriorComponentTarget,
   type InteriorComponentType,
   type InteriorTargetKind,
+  type StandaloneInteriorComponent,
 } from "@woodcraft/shared";
 import {
   INTERIOR_TARGET_KIND_LABELS,
@@ -31,7 +32,9 @@ import {
 } from "./type-labels";
 
 interface Props {
-  initial: CabinetInteriorComponent | null;   // null → create mode
+  /** null → create mode. Only standalone components are editable here —
+   *  linked (definitionId) components are never offered for edit in 3.1a. */
+  initial: StandaloneInteriorComponent | null;
   cabinet: InteriorCabinetContext;
   onClose: () => void;
   onSubmit: (component: CabinetInteriorComponent) => Promise<void> | void;
@@ -130,7 +133,7 @@ function TypeForm({
   onSwitchType,
 }: {
   type: InteriorComponentType;
-  initial: CabinetInteriorComponent | null;
+  initial: StandaloneInteriorComponent | null;
   cabinet: InteriorCabinetContext;
   onCancel: () => void;
   onSubmit: (c: CabinetInteriorComponent) => Promise<void> | void;

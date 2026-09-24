@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext, getPagination } from "@/lib/context";
 import { parseBody, createRevisionSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canAssignCabinetSystems,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 export async function GET(
   req: NextRequest,
@@ -45,7 +50,12 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId, userId } = getContext(req);
+  const { orgId, userId, role } = getContext(req);
+  // Creating a revision is a project mutation — same permission as
+  // cabinet POST/PATCH/DELETE and revision restore. Viewers forbidden.
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }

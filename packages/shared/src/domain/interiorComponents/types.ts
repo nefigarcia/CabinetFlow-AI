@@ -79,6 +79,9 @@ interface InteriorComponentBase {
   verificationStatus?: InteriorComponentVerificationStatus;
   sourceRef?: string;                         // e.g. "Bibb Cabinetry Layouts 8_24_26 x2.pdf — page 12"
   metadata?: Record<string, unknown>;         // deferred capabilities, extensibility
+  /** Standalone components never carry a definition link. Linked
+   *  components are modeled by `LinkedInteriorComponent` below. */
+  definitionId?: undefined;
 }
 
 export interface RolloutComponent extends InteriorComponentBase {
@@ -150,7 +153,9 @@ export interface CustomInteriorComponent extends InteriorComponentBase {
   spec?: Record<string, unknown>;
 }
 
-export type CabinetInteriorComponent =
+/** Phase 3.0 contract — a component that carries all of its own
+ *  semantic configuration (no shop-standard link). */
+export type StandaloneInteriorComponent =
   | RolloutComponent
   | TrashPulloutComponent
   | TrayDividerComponent
@@ -162,6 +167,37 @@ export type CabinetInteriorComponent =
   | SinkPulloutComponent
   | SpongeTiltOutComponent
   | CustomInteriorComponent;
+
+// ─── Linked components (Phase 3.1a — forward compatibility ONLY) ────
+//
+// Phase 3.1b will let a component reference an immutable, org-scoped
+// AccessoryDefinition row via `definitionId`. A linked component stores
+// only OVERRIDES — every type-specific config field becomes optional
+// (the definition carries the defaults), and `label` is optional even
+// for `custom` (the definition name is the fallback display label).
+//
+// Phase 3.1a has NO definition table. This type exists so that 3.1a
+// code, when used as a rollback target from 3.1b, can READ linked
+// components without treating the whole array as corrupt. 3.1a never
+// allows a definitionId to be created or changed — see
+// `server-validation.ts` (enforceInteriorComponentsWritePolicy).
+
+type InteriorConfigKeys<T> = Exclude<keyof T, keyof InteriorComponentBase | "type">;
+
+export type LinkedInteriorComponent<
+  T extends StandaloneInteriorComponent = StandaloneInteriorComponent,
+> = T extends unknown
+  ? Omit<T, InteriorConfigKeys<T> | "label" | "definitionId"> &
+      Partial<Pick<T, InteriorConfigKeys<T>>> & {
+        label?: string;
+        /** Immutable AccessoryDefinition row id (identifies the exact version). */
+        definitionId: string;
+      }
+  : never;
+
+export type CabinetInteriorComponent =
+  | StandaloneInteriorComponent
+  | LinkedInteriorComponent;
 
 // ─── Readiness codes ────────────────────────────────────────────────
 //

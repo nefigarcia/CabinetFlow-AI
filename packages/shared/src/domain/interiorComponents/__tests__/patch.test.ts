@@ -3,7 +3,7 @@ import {
   addInteriorComponent,
   buildInteriorComponentsPatch,
   INTERIOR_COMPONENTS_PARAM_KEY,
-  readInteriorComponents,
+  readInteriorComponentsSafe,
   removeInteriorComponent,
   reorderInteriorComponents,
   setInteriorComponentEnabled,
@@ -88,24 +88,30 @@ describe("buildInteriorComponentsPatch — patch-body constructor", () => {
   });
 });
 
-describe("readInteriorComponents — safe read", () => {
-  it("returns [] for null / undefined / non-array", () => {
-    expect(readInteriorComponents(null)).toEqual([]);
-    expect(readInteriorComponents(undefined)).toEqual([]);
-    expect(readInteriorComponents({})).toEqual([]);
-    expect(readInteriorComponents({ interiorComponents: "not-array" })).toEqual([]);
+describe("readInteriorComponentsSafe — safe read (Phase 3.1a)", () => {
+  it("returns ok([]) for null / undefined / missing key", () => {
+    expect(readInteriorComponentsSafe(null)).toEqual({ status: "ok", components: [] });
+    expect(readInteriorComponentsSafe(undefined)).toEqual({ status: "ok", components: [] });
+    expect(readInteriorComponentsSafe({})).toEqual({ status: "ok", components: [] });
   });
 
   it("returns the array when it validates cleanly", () => {
     const arr = [c("x"), c("y")];
-    expect(readInteriorComponents({ interiorComponents: arr })).toEqual(arr);
+    expect(readInteriorComponentsSafe({ interiorComponents: arr })).toEqual({ status: "ok", components: arr });
   });
 
-  it("returns [] when the stored array contains an invalid element (safe fallback)", () => {
-    // Legacy / malformed row: readInteriorComponents refuses to crash
-    // the Inspector; it returns [].
+  // Phase 3.0 asserted `[]` here — that fallback let the Inspector show an
+  // empty list and the next Add overwrite the real stored array. 3.1a
+  // replaces it: malformed stored data is UNREADABLE, never [].
+  it("an invalid element makes the value unreadable (NOT [])", () => {
     const bad = { interiorComponents: [{ id: "x", enabled: true, type: "made_up" }] };
-    expect(readInteriorComponents(bad)).toEqual([]);
+    const r = readInteriorComponentsSafe(bad);
+    expect(r.status).toBe("unreadable");
+  });
+
+  it("a non-array stored value is unreadable (NOT [])", () => {
+    expect(readInteriorComponentsSafe({ interiorComponents: "not-array" }).status).toBe("unreadable");
+    expect(readInteriorComponentsSafe({ interiorComponents: null }).status).toBe("unreadable");
   });
 });
 

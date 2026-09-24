@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateProjectSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import { canManageOrganizationStandards, FORBIDDEN_CODE } from "@/lib/authz";
 
 export async function GET(
   req: NextRequest,
@@ -55,7 +56,14 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  // Cascade-deletes every room/cabinet/part/revision in the project — an
+  // administrative, job-level action, NOT a cabinet-design mutation.
+  // Owner/admin only (the existing owner/admin predicate); designers
+  // and viewers forbidden.
+  if (!canManageOrganizationStandards(role)) {
+    return apiError("Only owners and admins can delete projects.", 403, FORBIDDEN_CODE);
+  }
 
   const existing = await prisma.project.findFirst({ where: { id: params.id, orgId } });
   if (!existing) return apiError("Project not found", 404);

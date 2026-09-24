@@ -6,14 +6,11 @@ import { cadService } from "@/lib/services";
 import { syncParts } from "@/lib/parts";
 import { apiError, ok } from "@/lib/errors";
 import {
-  CABINET_PROFILE_REF_KEYS,
-  CABINET_SYSTEM_REF_KEYS,
   applyCabinetParametersPatch,
-  assertSystemBelongsToOrg,
   doesParameterChangeRequireCadRecompute,
-  ProfileInheritance,
-  validateIncomingCabinetParameters,
+  gateCabinetParametersWrite,
 } from "@woodcraft/shared";
+import { prismaCabinetParameterRefLookup } from "@/lib/cabinet-parameters";
 import {
   canAssignCabinetSystems,
   FORBIDDEN_CODE,
@@ -59,18 +56,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const parsed = parseBody(updateCabinetSchema, body);
   if (!parsed.success) return apiError(parsed.error, 422, "VALIDATION_ERROR");
 
-  // ── Phase 3.0 — deep validation of interiorComponents ────────────────────
-  // updateCabinetSchema's `parameters` is `z.record(z.any())` and cannot
-  // discriminate the interior-component union. If the incoming patch
-  // contains `interiorComponents`, run it through the strict shared
-  // discriminated-union schema (rejects unknown discriminants, missing
-  // required fields, duplicate IDs, cross-type extra fields, null value).
-  // Sanitized parameters replace the raw ones going into
-  // applyCabinetParametersPatch.
-  const validated = validateIncomingCabinetParameters(parsed.data.parameters);
-  if (!validated.ok) return apiError(validated.error, 422, "VALIDATION_ERROR");
-  const sanitizedIncomingParams = validated.parameters;
-
   const existing = await findCabinet(params.cabinetId, params.roomId, params.id, orgId);
   if (!existing) return apiError("Cabinet not found", 404);
 
@@ -79,87 +64,37 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (!mat) return apiError("Material not found", 404);
   }
 
+  const existingParameters = existing.parameters as Record<string, unknown>;
+
+  // ── Canonical Cabinet.parameters write gate (shared with POST) ────────────
+  // updateCabinetSchema's `parameters` is `z.record(z.any())`. The gate:
+  //   · strict interior-component validation (unknown discriminants,
+  //     missing required fields, duplicate IDs, cross-type fields, null);
+  //   · Phase 3.1a write policy — no new/changed definitionId, never
+  //     overwrite a stored value this version cannot read (409);
+  //   · same-org tenancy for profile + system refs (uniform 404) and the
+  //     familyRule.cabinetType guard (422).
+  // Sanitized parameters replace the raw ones going into
+  // applyCabinetParametersPatch.
+  const gate = await gateCabinetParametersWrite({
+    orgId,
+    cabinetType: existing.type,
+    parameters: parsed.data.parameters,
+    existingParameters,
+    lookup: prismaCabinetParameterRefLookup,
+  });
+  if (!gate.ok) return apiError(gate.error, gate.status, gate.code);
+  const sanitizedIncomingParams = gate.parameters;
+
   // ── Canonical parameters merge ─────────────────────────────────────────────
   // Uses the shared `applyCabinetParametersPatch` helper so profile-ref
   // and wallPlacement deletion (`null` in patch) correctly REMOVE keys
   // from the JSON bag. Prior inline shallow-spread pattern is retired.
   const parametersWasPatched = sanitizedIncomingParams !== undefined;
-  const existingParameters = existing.parameters as Record<string, unknown>;
   const nextParameters = applyCabinetParametersPatch(
     existingParameters,
     sanitizedIncomingParams,
   );
-
-  // ── Tenancy: any non-null profile ref in the patch must belong to org ─────
-  // Deletions (`null`) skip the lookup by design. Rejection returns 404
-  // uniformly — no metadata leak about cross-org profiles. We read from
-  // the SANITIZED incoming parameters so any Zod-normalized shape is
-  // reflected here too.
-  const incomingParams: Record<string, unknown> | undefined = sanitizedIncomingParams;
-  if (incomingParams) {
-    for (const key of CABINET_PROFILE_REF_KEYS) {
-      const value = incomingParams[key];
-      if (typeof value !== "string" || value.length === 0) continue;
-      const row =
-        key === "constructionProfileId"
-          ? await prisma.constructionProfile.findFirst({
-              where: { id: value, orgId },
-              select: { id: true, orgId: true },
-            })
-          : key === "materialProfileId"
-            ? await prisma.cabinetMaterialProfile.findFirst({
-                where: { id: value, orgId },
-                select: { id: true, orgId: true },
-              })
-            : await prisma.hardwareProfile.findFirst({
-                where: { id: value, orgId },
-                select: { id: true, orgId: true },
-              });
-      const check = ProfileInheritance.assertProfileBelongsToOrg(row, orgId);
-      if (!check.ok) return apiError("Profile not found", 404);
-    }
-
-    // Phase 2 system refs (familyRuleId, frontSystemId, drawerSystemId).
-    // Same uniform 404 posture as profile refs.
-    for (const key of CABINET_SYSTEM_REF_KEYS) {
-      const value = incomingParams[key];
-      if (typeof value !== "string" || value.length === 0) continue;
-
-      if (key === "familyRuleId") {
-        const row = await prisma.cabinetFamilyRule.findFirst({
-          where: { id: value, orgId },
-          select: { id: true, orgId: true, cabinetType: true },
-        });
-        const check = assertSystemBelongsToOrg(row, orgId);
-        if (!check.ok) return apiError("Not found", 404);
-        // Phase 2.1 semantic guard: familyRule.cabinetType must match the
-        // cabinet's own type. Prevents assigning a Wall family rule to a
-        // Base cabinet. Server is authoritative — UI may filter dropdowns,
-        // but any bypass rejects here.
-        if (row && row.cabinetType !== existing.type) {
-          return apiError(
-            `Family rule '${value}' targets cabinetType='${row.cabinetType}' but this cabinet is type='${existing.type}'.`,
-            422,
-            "VALIDATION_ERROR",
-          );
-        }
-        continue;
-      }
-
-      const row =
-        key === "frontSystemId"
-          ? await prisma.frontSystem.findFirst({
-              where: { id: value, orgId },
-              select: { id: true, orgId: true },
-            })
-          : await prisma.drawerSystem.findFirst({
-              where: { id: value, orgId },
-              select: { id: true, orgId: true },
-            });
-      const check = assertSystemBelongsToOrg(row, orgId);
-      if (!check.ok) return apiError("Not found", 404);
-    }
-  }
 
   const updated = await prisma.cabinet.update({
     where: { id: params.cabinetId },
@@ -221,7 +156,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  // Same cabinet-mutation permission as POST / PATCH: viewers forbidden.
+  if (!canAssignCabinetSystems(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findCabinet(params.cabinetId, params.roomId, params.id, orgId);
   if (!existing) return apiError("Cabinet not found", 404);

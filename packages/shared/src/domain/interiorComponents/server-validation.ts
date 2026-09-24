@@ -1,10 +1,10 @@
-// Phase 3.0 server-side validation for incoming Cabinet.parameters
-// PATCHes.
+// Phase 3.0 / 3.1a server-side validation for incoming Cabinet.parameters
+// writes (Cabinet PATCH and Cabinet POST).
 //
 // PROBLEM this closes:
-//   The Cabinet PATCH route's `updateCabinetSchema` accepts
-//   `parameters: z.record(z.any()).optional()` — any object shape is
-//   accepted. Without this helper, a forged client could POST:
+//   The Cabinet routes' `parameters` field is `z.record(z.any())` — any
+//   object shape is accepted. Without this helper, a forged client could
+//   POST:
 //     { parameters: { interiorComponents: [{ type: "totally_fake" }] } }
 //   or:
 //     { parameters: { interiorComponents: null } }
@@ -12,52 +12,66 @@
 //
 // CONTRACT:
 //   · Input: raw incoming `parameters` object (or null/undefined for
-//     "not in this patch").
+//     "not in this patch"), plus — for updates — the cabinet's CURRENT
+//     stored parameters.
 //   · If `parameters` does NOT contain `interiorComponents`, the
 //     input is returned unchanged (`{ ok: true, parameters }`).
-//   · If it DOES contain `interiorComponents`, that value is
-//     Zod-parsed through `cabinetInteriorComponentsArraySchema`.
-//     Invalid → `{ ok: false, error: string }`.
-//     Valid  → returned with the canonical parsed array in place of
-//              the raw one (`{ ok: true, parameters: {...parameters,
-//              interiorComponents: parsedArray} }`).
+//   · If it DOES contain `interiorComponents`:
+//       1. STRUCTURAL: Zod-parsed through
+//          `cabinetInteriorComponentsArraySchema` → 422 on failure.
+//       2. WRITE POLICY (Phase 3.1a): see
+//          `enforceInteriorComponentsWritePolicy` below → 409 / 422.
+//     Valid → returned with the canonical array in place of the raw one.
 //
 // This helper is deliberately shared (not API-only) so it can be
 // exercised by the existing shared Vitest harness without introducing
-// an API test framework. The Cabinet PATCH route calls it AFTER the
-// per-field Zod parse of updateCabinetSchema and BEFORE
-// applyCabinetParametersPatch.
+// an API test framework.
 
 import { cabinetInteriorComponentsArraySchema } from "./schemas";
 import type { CabinetInteriorComponent } from "./types";
-import { INTERIOR_COMPONENTS_PARAM_KEY } from "./patch";
+import {
+  INTERIOR_COMPONENTS_PARAM_KEY,
+  isLinkedInteriorComponent,
+  readInteriorComponentsSafe,
+} from "./patch";
 
 export type IncomingParametersValidationResult =
   | {
       ok: true;
       /** The incoming parameters object with `interiorComponents`
-       *  replaced by the canonical parsed array (if present). All
-       *  other keys pass through unchanged. */
+       *  replaced by the canonical array (if present). All other keys
+       *  pass through unchanged. */
       parameters: Record<string, unknown> | undefined;
     }
   | {
       ok: false;
-      /** Human-readable message safe for a 422 body — no PII, no
+      /** 422 = invalid payload; 409 = the stored value cannot be safely
+       *  overwritten by this version. */
+      status: 409 | 422;
+      /** Human-readable message safe for an error body — no PII, no
        *  internal type names. */
       error: string;
     };
 
-/** The Cabinet PATCH route calls this on the raw incoming `parameters`
- *  before merging. Returns a sanitized parameters object on success,
- *  or a validation-error message the route can pass to `apiError`. */
+export interface IncomingParametersValidationOptions {
+  /** The cabinet's CURRENT stored `parameters` (updates only). Omit for
+   *  creates. When omitted, the write policy behaves as if nothing is
+   *  stored — i.e. ANY definitionId is rejected (fail-closed). */
+  existingParameters?: Record<string, unknown> | null;
+}
+
+/** Canonical gate for incoming `Cabinet.parameters` on every external
+ *  write path. Returns sanitized parameters on success, or an error
+ *  the route can pass to `apiError(error, status, ...)`. */
 export function validateIncomingCabinetParameters(
   parameters: Record<string, unknown> | null | undefined,
+  options: IncomingParametersValidationOptions = {},
 ): IncomingParametersValidationResult {
   if (parameters === undefined || parameters === null) {
     return { ok: true, parameters: undefined };
   }
   if (typeof parameters !== "object" || Array.isArray(parameters)) {
-    return { ok: false, error: "parameters: must be a JSON object" };
+    return { ok: false, status: 422, error: "parameters: must be a JSON object" };
   }
 
   // No interiorComponents key → nothing for us to validate; pass through.
@@ -72,6 +86,7 @@ export function validateIncomingCabinetParameters(
   if (raw === null) {
     return {
       ok: false,
+      status: 422,
       error: `${INTERIOR_COMPONENTS_PARAM_KEY}: null is not allowed. Use [] to clear or omit the key to preserve.`,
     };
   }
@@ -84,19 +99,130 @@ export function validateIncomingCabinetParameters(
       .join("; ");
     return {
       ok: false,
+      status: 422,
       error: `${INTERIOR_COMPONENTS_PARAM_KEY}: ${summary}`,
     };
   }
 
-  // Return the sanitized object — canonical parsed array in place of
-  // whatever the client sent (shape may differ only where zod stripped
-  // undefined optionals; in strict mode nothing is stripped).
-  const parsedArr: CabinetInteriorComponent[] = parsed.data;
+  const policy = enforceInteriorComponentsWritePolicy({
+    incoming: parsed.data,
+    existingParameters: options.existingParameters ?? null,
+  });
+  if (!policy.ok) return policy;
+
   return {
     ok: true,
     parameters: {
       ...parameters,
-      [INTERIOR_COMPONENTS_PARAM_KEY]: parsedArr,
+      [INTERIOR_COMPONENTS_PARAM_KEY]: policy.components,
     },
   };
+}
+
+// ─── Phase 3.1a write policy ────────────────────────────────────────
+//
+// Phase 3.1a can READ linked components (definitionId) — so it is a
+// safe rollback target from 3.1b — but there is no AccessoryDefinition
+// table yet, so it must never let a reference be CREATED or CHANGED.
+//
+// Rules, applied to a structurally-valid incoming array:
+//
+//   A. Stored value unreadable by this version → 409. Never overwrite
+//      data this code cannot understand (twin of the Inspector guard).
+//   B. Every incoming linked component must be IDENTICAL (same id and
+//      deep-equal content) to a linked component already stored on this
+//      cabinet → otherwise 422. Covers: new definitionId, changed
+//      definitionId, standalone→linked, and any edit to a linked
+//      component (overrides, enabled, target, …).
+//   C. Every stored linked component must still be present AS A LINKED
+//      component → otherwise 422. 3.1a may not remove / strip / flatten
+//      a linked component (same id re-sent without definitionId counts).
+//
+// Unchanged linked components are written back from the STORED raw
+// element (verbatim), not the Zod re-serialization.
+//
+// Creates pass no stored parameters, so any definitionId is rejected.
+
+export type InteriorWritePolicyResult =
+  | { ok: true; components: unknown[] }
+  | { ok: false; status: 409 | 422; error: string };
+
+export function enforceInteriorComponentsWritePolicy(input: {
+  incoming: readonly CabinetInteriorComponent[];
+  existingParameters: Record<string, unknown> | null | undefined;
+}): InteriorWritePolicyResult {
+  const stored = readInteriorComponentsSafe(input.existingParameters);
+
+  // A. Refuse to overwrite a stored value this version cannot read.
+  if (stored.status === "unreadable") {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        `${INTERIOR_COMPONENTS_PARAM_KEY}: the stored interior components cannot be safely read by this version; ` +
+        `refusing to overwrite them.`,
+    };
+  }
+
+  const storedRaw = input.existingParameters?.[INTERIOR_COMPONENTS_PARAM_KEY];
+  const storedRawArr: unknown[] = Array.isArray(storedRaw) ? storedRaw : [];
+  const storedLinkedById = new Map<string, { parsed: CabinetInteriorComponent; raw: unknown }>();
+  stored.components.forEach((c, i) => {
+    if (isLinkedInteriorComponent(c)) storedLinkedById.set(c.id, { parsed: c, raw: storedRawArr[i] });
+  });
+
+  // B. No new / changed / edited linked components.
+  const out: unknown[] = [];
+  for (const c of input.incoming) {
+    if (!isLinkedInteriorComponent(c)) {
+      out.push(c);
+      continue;
+    }
+    const prev = storedLinkedById.get(c.id);
+    if (!prev || stableStringify(prev.parsed) !== stableStringify(c)) {
+      return {
+        ok: false,
+        status: 422,
+        error:
+          `${INTERIOR_COMPONENTS_PARAM_KEY}: component '${c.id}': shop-standard links (definitionId) ` +
+          `cannot be created or modified by this version.`,
+      };
+    }
+    out.push(prev.raw);
+  }
+
+  // C. No removal of stored linked components — and no flattening: the
+  //    same id re-sent as a standalone component (definitionId stripped)
+  //    counts as removal of the link. (B already guarantees every linked
+  //    incoming component is identical to its stored counterpart.)
+  const incomingLinkedIds = new Set(
+    input.incoming.filter(isLinkedInteriorComponent).map((c) => c.id),
+  );
+  for (const id of storedLinkedById.keys()) {
+    if (!incomingLinkedIds.has(id)) {
+      return {
+        ok: false,
+        status: 422,
+        error:
+          `${INTERIOR_COMPONENTS_PARAM_KEY}: component '${id}' is linked to a shop standard and ` +
+          `cannot be removed, unlinked, or flattened by this version.`,
+      };
+    }
+  }
+
+  return { ok: true, components: out };
+}
+
+/** Key-order-independent JSON serialization for deep equality of
+ *  JSON-safe values (components come out of Zod / a JSON column). */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
