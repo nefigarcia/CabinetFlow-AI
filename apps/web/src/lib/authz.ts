@@ -6,6 +6,7 @@
 
 export {
   canAssignCabinetSystems,
+  canManageOrganizationLibrary,
   canManageOrganizationStandards,
   canReadCabinetSystems,
 } from "@woodcraft/shared";

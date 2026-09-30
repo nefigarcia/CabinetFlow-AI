@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import { isPlatformAdmin } from "@/lib/scenePlatformAdmin";
+import {
+  canManageOrganizationLibrary,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
+} from "@/lib/authz";
 import { serializeSceneAssetDefinition } from "@/lib/sceneAssetDefinitionSerializer";
 import {
   ingestSceneAsset,
@@ -30,6 +35,9 @@ type Params = { params: { id: string } };
 export async function POST(req: NextRequest, { params }: Params): Promise<Response> {
   const ctx = getContext(req);
   if (!ctx.orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationLibrary(ctx.role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   const parent = await prisma.sceneAssetDefinition.findUnique({ where: { id: params.id } });
   if (!parent) return apiError("Not found", 404);

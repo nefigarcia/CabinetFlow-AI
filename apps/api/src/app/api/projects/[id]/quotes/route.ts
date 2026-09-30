@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext, getPagination } from "@/lib/context";
 import { parseBody, createQuoteSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 function computeTotals(
   lineItems: { qty: number; unitPrice: number }[],
@@ -42,7 +47,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId, userId } = getContext(req);
+  const { orgId, userId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }

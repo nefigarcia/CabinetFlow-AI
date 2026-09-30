@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { canManageOrganizationLibrary } from "@/lib/authz";
 
 interface Material {
   id: string;
@@ -25,6 +27,9 @@ const BLANK: Omit<Material, "id"> = {
 };
 
 export default function MaterialsPage() {
+  // UI mirror of the server policy (owner/admin manage). Server is authoritative.
+  const role = useAuthStore((s) => s.user?.role);
+  const canManage = canManageOrganizationLibrary(role);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"new" | Material | null>(null);
@@ -82,10 +87,18 @@ export default function MaterialsPage() {
           <h1 className="text-2xl font-bold text-white mb-1">Materials</h1>
           <p className="text-gray-400 text-sm">Sheet goods catalogue for your shop.</p>
         </div>
-        <button onClick={openNew} className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          + Add Material
-        </button>
+        {canManage && (
+          <button onClick={openNew} className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            + Add Material
+          </button>
+        )}
       </div>
+
+      {!canManage && (
+        <p className="text-[11px] mb-3" style={{ color: "#8b96a8" }}>
+          Read-only · only owners and admins can add, edit, or delete materials.
+        </p>
+      )}
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : materials.length === 0 ? (
         <div className="bg-surface-50 border border-surface-200 rounded-xl p-10 text-center">
@@ -112,10 +125,12 @@ export default function MaterialsPage() {
                   <td className="px-4 py-3 text-gray-500">{m.supplier ?? "—"}</td>
                   <td className="px-4 py-3 text-gray-500 font-mono text-xs">{m.sku ?? "—"}</td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-3">
-                      <button onClick={() => openEdit(m)} className="text-gray-500 hover:text-white text-xs transition-colors">Edit</button>
-                      <button onClick={() => void handleDelete(m.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">Delete</button>
-                    </div>
+                    {canManage && (
+                      <div className="flex gap-3">
+                        <button onClick={() => openEdit(m)} className="text-gray-500 hover:text-white text-xs transition-colors">Edit</button>
+                        <button onClick={() => void handleDelete(m.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">Delete</button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -124,7 +139,7 @@ export default function MaterialsPage() {
         </div>
       )}
 
-      {modal !== null && (
+      {canManage && modal !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-surface-50 border border-surface-200 rounded-xl p-6 w-[480px] shadow-xl">
             <h3 className="text-white font-semibold mb-5">{modal === "new" ? "Add Material" : "Edit Material"}</h3>

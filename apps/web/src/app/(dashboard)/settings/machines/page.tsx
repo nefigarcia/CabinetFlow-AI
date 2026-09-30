@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { canManageOrganizationLibrary } from "@/lib/authz";
 
 interface MachineProfile {
   id: string;
@@ -18,6 +20,9 @@ const MACHINE_TYPES = ["cnc_router", "panel_saw", "edge_bander"] as const;
 const BLANK = { name: "", manufacturer: "", model: "", type: "cnc_router" as const, postProcessor: "holzher_dynestic_7507", config: {} };
 
 export default function MachinesPage() {
+  // UI mirror of the server policy (owner/admin manage). Server is authoritative.
+  const role = useAuthStore((s) => s.user?.role);
+  const canManage = canManageOrganizationLibrary(role);
   const [profiles, setProfiles] = useState<MachineProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"new" | MachineProfile | null>(null);
@@ -73,10 +78,18 @@ export default function MachinesPage() {
           <Link href="/settings" className="text-gray-500 hover:text-gray-300 text-sm">← Settings</Link>
           <h1 className="text-2xl font-bold text-white mt-1">Machine Profiles</h1>
         </div>
-        <button onClick={openNew} className="bg-brand-500 hover:bg-brand-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">
-          + Add Machine
-        </button>
+        {canManage && (
+          <button onClick={openNew} className="bg-brand-500 hover:bg-brand-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">
+            + Add Machine
+          </button>
+        )}
       </div>
+
+      {!canManage && (
+        <p className="text-[11px] mb-3" style={{ color: "#8b96a8" }}>
+          Read-only · only owners and admins can add, edit, or delete machine profiles.
+        </p>
+      )}
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : profiles.length === 0 ? (
         <div className="bg-surface-50 border border-surface-200 rounded-xl p-10 text-center">
@@ -92,16 +105,18 @@ export default function MachinesPage() {
                 <p className="text-gray-400 text-sm">{p.manufacturer} {p.model} · <span className="capitalize">{p.type.replace(/_/g, " ")}</span></p>
                 <p className="text-gray-600 text-xs font-mono mt-0.5">{p.postProcessor}</p>
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => openEdit(p)} className="text-gray-500 hover:text-white text-xs transition-colors">Edit</button>
-                <button onClick={() => void handleDelete(p.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">Delete</button>
-              </div>
+              {canManage && (
+                <div className="flex gap-3">
+                  <button onClick={() => openEdit(p)} className="text-gray-500 hover:text-white text-xs transition-colors">Edit</button>
+                  <button onClick={() => void handleDelete(p.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">Delete</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {modal !== null && (
+      {canManage && modal !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-surface-50 border border-surface-200 rounded-xl p-6 w-[460px] shadow-xl">
             <h3 className="text-white font-semibold mb-5">{modal === "new" ? "Add Machine" : "Edit Machine"}</h3>

@@ -9,6 +9,11 @@ import {
   buildPartialPrismaUpdate,
 } from "@woodcraft/shared";
 import { verifyProfileTenancy } from "@/lib/profile-assignment";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; roomId: string } };
 
@@ -37,8 +42,11 @@ export async function GET(req: NextRequest, { params }: Params): Promise<Respons
 }
 
 export async function PATCH(req: NextRequest, { params }: Params): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const room = await findOwnedRoom(params.roomId, params.id, orgId);
   if (!room) return apiError("Room not found", 404);

@@ -4,6 +4,11 @@ import { getContext } from "@/lib/context";
 import { parseBody, updateSceneAssetInstanceSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
 import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
+import {
   placementToColumns,
   serializeSceneAssetInstance,
 } from "@/lib/sceneAssetSerializer";
@@ -20,7 +25,10 @@ async function assertRoom(roomId: string, projectId: string, orgId: string) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const room = await assertRoom(params.roomId, params.id, orgId);
   if (!room) return apiError("Room not found", 404);
@@ -104,7 +112,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(_req);
+  const { orgId, role } = getContext(_req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   if (!(await assertRoom(params.roomId, params.id, orgId))) {
     return apiError("Room not found", 404);

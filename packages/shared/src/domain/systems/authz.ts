@@ -43,7 +43,50 @@ export function canReadCabinetSystems(role: string | null | undefined): boolean 
   return normalize(role) !== null;
 }
 
+// ─── Authorization hardening — app-wide semantic predicates ───────────
+//
+// Same two role tiers as above, named for the domains beyond cabinet
+// systems. HTTP handlers only — internal CAD/system writes (e.g. parts
+// regeneration) are never role-gated.
+
+/** Owner/admin/designer: mutate working design content — projects,
+ *  rooms, manual cabinet parts, scene-asset placements, quotes,
+ *  installer feedback, and design-tool executions (validate,
+ *  sketch-to-cad, CNC export). Viewers are read-only. */
+export function canMutateDesignContent(role: string | null | undefined): boolean {
+  const r = normalize(role);
+  return r !== null && OWNER_ADMIN_DESIGNER.has(r);
+}
+
+/** Owner/admin: create/edit/delete organization-wide reusable libraries
+ *  — Phase 1 profiles, materials, hardware, machine profiles, and
+ *  org-scoped scene-asset definitions. */
+export function canManageOrganizationLibrary(role: string | null | undefined): boolean {
+  const r = normalize(role);
+  return r !== null && OWNER_OR_ADMIN.has(r);
+}
+
+/** Quote statuses that record a financial decision (existing enum values). */
+export const QUOTE_DECISION_STATUSES: ReadonlySet<string> = new Set(["accepted", "rejected"]);
+
+/** May `role` move a quote from `from` to `to`? Transitions INTO a
+ *  decision status are owner/admin; everything else (incl. `sent`, and
+ *  re-sending the current status) follows canMutateDesignContent. */
+export function canTransitionQuoteStatus(
+  role: string | null | undefined,
+  from: string | null | undefined,
+  to: string | null | undefined,
+): boolean {
+  if (!canMutateDesignContent(role)) return false;
+  if (to == null || to === from || !QUOTE_DECISION_STATUSES.has(to)) return true;
+  return canManageOrganizationStandards(role);
+}
+
 export const FORBIDDEN_CODE = "FORBIDDEN";
+export const FORBIDDEN_MESSAGE_QUOTE_DECISION =
+  "Only owners and admins can mark a quote accepted or rejected.";
+export const FORBIDDEN_MESSAGE_MANAGE_LIBRARY =
+  "Only owners and admins can manage organization libraries and standards.";
 export const FORBIDDEN_MESSAGE_MANAGE_STANDARDS =
   "Only owners and admins can manage cabinet-system definitions or organization defaults.";
 export const FORBIDDEN_MESSAGE_ASSIGN =

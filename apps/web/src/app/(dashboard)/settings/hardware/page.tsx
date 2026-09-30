@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { canManageOrganizationLibrary } from "@/lib/authz";
 
 interface Hardware {
   id: string;
@@ -17,6 +19,9 @@ const HARDWARE_TYPES = ["hinge", "drawer_slide", "handle", "screw", "cam_lock", 
 const BLANK = { name: "", type: "hinge" as const, sku: "", supplier: "", costPerUnit: 0 };
 
 export default function HardwarePage() {
+  // UI mirror of the server policy (owner/admin manage). Server is authoritative.
+  const role = useAuthStore((s) => s.user?.role);
+  const canManage = canManageOrganizationLibrary(role);
   const [hardware, setHardware] = useState<Hardware[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"new" | Hardware | null>(null);
@@ -73,10 +78,18 @@ export default function HardwarePage() {
           <Link href="/settings" className="text-gray-500 hover:text-gray-300 text-sm">← Settings</Link>
           <h1 className="text-2xl font-bold text-white mt-1">Hardware Catalogue</h1>
         </div>
-        <button onClick={openNew} className="bg-brand-500 hover:bg-brand-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">
-          + Add Hardware
-        </button>
+        {canManage && (
+          <button onClick={openNew} className="bg-brand-500 hover:bg-brand-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">
+            + Add Hardware
+          </button>
+        )}
       </div>
+
+      {!canManage && (
+        <p className="text-[11px] mb-3" style={{ color: "#8b96a8" }}>
+          Read-only · only owners and admins can add, edit, or delete hardware.
+        </p>
+      )}
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : hardware.length === 0 ? (
         <div className="bg-surface-50 border border-surface-200 rounded-xl p-10 text-center">
@@ -101,10 +114,12 @@ export default function HardwarePage() {
                   <td className="px-4 py-3 text-gray-500 font-mono text-xs">{h.sku ?? "—"}</td>
                   <td className="px-4 py-3 text-gray-300 tabular-nums">${Number(h.costPerUnit).toFixed(4)}</td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-3">
-                      <button onClick={() => openEdit(h)} className="text-gray-500 hover:text-white text-xs transition-colors">Edit</button>
-                      <button onClick={() => void handleDelete(h.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">Delete</button>
-                    </div>
+                    {canManage && (
+                      <div className="flex gap-3">
+                        <button onClick={() => openEdit(h)} className="text-gray-500 hover:text-white text-xs transition-colors">Edit</button>
+                        <button onClick={() => void handleDelete(h.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">Delete</button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -113,7 +128,7 @@ export default function HardwarePage() {
         </div>
       )}
 
-      {modal !== null && (
+      {canManage && modal !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-surface-50 border border-surface-200 rounded-xl p-6 w-[420px] shadow-xl">
             <h3 className="text-white font-semibold mb-5">{modal === "new" ? "Add Hardware" : "Edit Hardware"}</h3>

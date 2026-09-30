@@ -5,6 +5,11 @@ import { Prisma } from "@woodcraft/db";
 import { getContext } from "@/lib/context";
 import { parseBody } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; roomId: string; cabinetId: string; partId: string } };
 
@@ -32,7 +37,10 @@ async function findPart(partId: string, cabinetId: string, orgId: string) {
 
 // PATCH — edit any part (manual or CAD-computed)
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findPart(params.partId, params.cabinetId, orgId);
   if (!existing) return apiError("Part not found", 404);
@@ -76,7 +84,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 // DELETE — remove a part; only manual parts can be deleted this way
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findPart(params.partId, params.cabinetId, orgId);
   if (!existing) return apiError("Part not found", 404);

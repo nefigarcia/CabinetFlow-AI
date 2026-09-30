@@ -2,7 +2,13 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 
 import { getContext } from "@/lib/context";
+import { prisma } from "@/lib/prisma";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type CabinetType =
   | "base"
@@ -233,8 +239,16 @@ Cover: room type identified, every labeled dimension, unit-by-unit description w
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  getContext(req);
-  void params;
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
+  // Project-scoped paid call — the project must belong to the caller's org.
+  const project = await prisma.project.findFirst({
+    where: { id: params.id, orgId },
+    select: { id: true },
+  });
+  if (!project) return apiError("Project not found", 404);
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;

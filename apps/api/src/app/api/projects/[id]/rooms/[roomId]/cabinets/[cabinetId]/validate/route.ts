@@ -4,6 +4,11 @@ import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 interface PartRow {
   name: string;
@@ -151,7 +156,10 @@ Check for: dimensions outside standard ranges, cabinet exceeding room size, part
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const cabinet = await prisma.cabinet.findFirst({
     where: {

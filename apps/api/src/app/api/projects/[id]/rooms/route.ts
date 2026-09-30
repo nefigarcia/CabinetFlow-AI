@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, createRoomSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 async function assertProjectOwnership(projectId: string, orgId: string) {
   const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
@@ -33,7 +38,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   if (!await assertProjectOwnership(params.id, orgId)) {
     return apiError("Project not found", 404);

@@ -109,10 +109,16 @@ export { buildDrawerSystemCandidate } from "./patch";
 export {
   FORBIDDEN_CODE,
   FORBIDDEN_MESSAGE_ASSIGN,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
   FORBIDDEN_MESSAGE_MANAGE_STANDARDS,
+  FORBIDDEN_MESSAGE_QUOTE_DECISION,
+  QUOTE_DECISION_STATUSES,
   canAssignCabinetSystems,
+  canManageOrganizationLibrary,
   canManageOrganizationStandards,
+  canMutateDesignContent,
   canReadCabinetSystems,
+  canTransitionQuoteStatus,
 } from "./authz";
 
 // Phase 2.1 readiness relevance predicate — drawer-system emission gate.

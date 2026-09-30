@@ -2,7 +2,13 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 
 import { getContext } from "@/lib/context";
+import { prisma } from "@/lib/prisma";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 import { compileGeometry, repairLayout, type CompiledGeometry, type CabinetSpecInput } from "@woodcraft/shared";
 
 type CabinetType = "base" | "wall" | "tall" | "corner" | "drawer_base" | "sink_base" | "island";
@@ -329,8 +335,16 @@ function getOpenAI() {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  getContext(req);
-  void params;
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
+  // Project-scoped paid call — the project must belong to the caller's org.
+  const project = await prisma.project.findFirst({
+    where: { id: params.id, orgId },
+    select: { id: true },
+  });
+  if (!project) return apiError("Project not found", 404);
 
   const body = (await req.json()) as { prompt: string };
   if (!body.prompt?.trim()) return apiError("prompt is required");

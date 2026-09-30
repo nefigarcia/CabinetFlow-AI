@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import { isPlatformAdmin } from "@/lib/scenePlatformAdmin";
+import {
+  canManageOrganizationLibrary,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
+} from "@/lib/authz";
 import { serializeSceneAssetDefinition } from "@/lib/sceneAssetDefinitionSerializer";
 import {
   canReadSceneAssetDefinition,
@@ -37,6 +42,11 @@ export async function GET(req: NextRequest, { params }: Params): Promise<Respons
 export async function PATCH(req: NextRequest, { params }: Params): Promise<Response> {
   const ctx = getContext(req);
   if (!ctx.orgId) return apiError("Unauthorized", 401);
+  // Resource-independent role gate first → same 403 for every id, so no
+  // cross-org existence leak. Scope/platform-admin rules still apply below.
+  if (!canManageOrganizationLibrary(ctx.role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   const row = await prisma.sceneAssetDefinition.findUnique({ where: { id: params.id } });
   if (!row) return apiError("Not found", 404);
@@ -102,6 +112,9 @@ export async function PATCH(req: NextRequest, { params }: Params): Promise<Respo
 export async function DELETE(req: NextRequest, { params }: Params): Promise<Response> {
   const ctx = getContext(req);
   if (!ctx.orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationLibrary(ctx.role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   const row = await prisma.sceneAssetDefinition.findUnique({ where: { id: params.id } });
   if (!row) return apiError("Not found", 404);

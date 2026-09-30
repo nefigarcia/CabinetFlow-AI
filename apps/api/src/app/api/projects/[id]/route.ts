@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateProjectSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
-import { canManageOrganizationStandards, FORBIDDEN_CODE } from "@/lib/authz";
+import {
+  canManageOrganizationStandards,
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 export async function GET(
   req: NextRequest,
@@ -33,7 +38,10 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }

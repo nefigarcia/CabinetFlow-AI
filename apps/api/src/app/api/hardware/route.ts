@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext, getPagination } from "@/lib/context";
 import { parseBody, createHardwareSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canManageOrganizationLibrary,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
+} from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
   const { orgId } = getContext(req);
@@ -27,7 +32,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canManageOrganizationLibrary(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }

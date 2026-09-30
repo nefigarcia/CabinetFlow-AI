@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateQuoteSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  canTransitionQuoteStatus,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+  FORBIDDEN_MESSAGE_QUOTE_DECISION,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; quoteId: string } };
 
@@ -27,7 +34,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }
@@ -37,6 +47,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const existing = await findQuote(params.quoteId, params.id, orgId);
   if (!existing) return apiError("Quote not found", 404);
+
+  // Financial decisions (→ accepted / rejected) are owner/admin only.
+  // Checked after the org-scoped lookup so cross-org ids still 404.
+  if (!canTransitionQuoteStatus(role, existing.status, parsed.data.status)) {
+    return apiError(FORBIDDEN_MESSAGE_QUOTE_DECISION, 403, FORBIDDEN_CODE);
+  }
 
   // Recompute totals if line items or tax rate changed
   const lineItems = (
@@ -68,7 +84,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
   const existing = await findQuote(params.quoteId, params.id, orgId);
   if (!existing) return apiError("Quote not found", 404);
   await prisma.quote.delete({ where: { id: params.quoteId } });

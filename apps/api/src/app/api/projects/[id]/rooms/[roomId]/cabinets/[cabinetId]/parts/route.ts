@@ -5,6 +5,11 @@ import { Prisma } from "@woodcraft/db";
 import { getContext } from "@/lib/context";
 import { parseBody } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 type Params = { params: { id: string; roomId: string; cabinetId: string } };
 
@@ -33,7 +38,13 @@ async function cabinetBelongsToOrg(cabinetId: string, roomId: string, projectId:
 
 // POST — add a manual part to a cabinet
 export async function POST(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  // Manual parts are user-authored and may not be recreated by CAD
+  // regeneration — viewers forbidden. (Internal CAD part writes in
+  // lib/parts.ts are not role-gated.)
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const cabinet = await cabinetBelongsToOrg(params.cabinetId, params.roomId, params.id, orgId);
   if (!cabinet) return apiError("Cabinet not found", 404);

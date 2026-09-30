@@ -209,10 +209,16 @@ export {
   // authorization
   FORBIDDEN_CODE,
   FORBIDDEN_MESSAGE_ASSIGN,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
   FORBIDDEN_MESSAGE_MANAGE_STANDARDS,
+  FORBIDDEN_MESSAGE_QUOTE_DECISION,
+  QUOTE_DECISION_STATUSES,
   canAssignCabinetSystems,
+  canManageOrganizationLibrary,
   canManageOrganizationStandards,
+  canMutateDesignContent,
   canReadCabinetSystems,
+  canTransitionQuoteStatus,
   // readiness relevance
   isDrawerSystemRelevant,
   // types

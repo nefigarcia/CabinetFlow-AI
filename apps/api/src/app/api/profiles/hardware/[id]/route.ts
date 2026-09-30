@@ -6,6 +6,11 @@ import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import { hardwareProfileWriteSchema } from "@woodcraft/shared";
 import { buildProfileUpdatePayload } from "@/lib/profiles";
+import {
+  canManageOrganizationLibrary,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
+} from "@/lib/authz";
 
 type Params = { params: { id: string } };
 
@@ -22,8 +27,11 @@ export async function GET(req: NextRequest, { params }: Params): Promise<Respons
 }
 
 export async function PATCH(req: NextRequest, { params }: Params): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationLibrary(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findOwned(params.id, orgId);
   if (!existing) return apiError("Profile not found", 404);
@@ -58,8 +66,11 @@ export async function PATCH(req: NextRequest, { params }: Params): Promise<Respo
 }
 
 export async function DELETE(req: NextRequest, { params }: Params): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationLibrary(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   const existing = await findOwned(params.id, orgId);
   if (!existing) return apiError("Profile not found", 404);

@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import { isPlatformAdmin } from "@/lib/scenePlatformAdmin";
+import {
+  canManageOrganizationLibrary,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
+} from "@/lib/authz";
 import { serializeSceneAssetDefinition } from "@/lib/sceneAssetDefinitionSerializer";
 import {
   ingestSceneAsset,
@@ -96,6 +101,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 export async function POST(req: NextRequest): Promise<Response> {
   const ctx = getContext(req);
   if (!ctx.orgId) return apiError("Unauthorized", 401);
+  // Definition library management is owner/admin. Additive to the
+  // SYSTEM-scope platform-admin gate below (platform admin ⇒ owner).
+  if (!canManageOrganizationLibrary(ctx.role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   const contentType = req.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data")) {

@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateClientSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
+import {
+  canManageOrganizationStandards,
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
 
 export async function GET(
   req: NextRequest,
@@ -23,7 +29,10 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return apiError("Invalid JSON body", 400); }
@@ -42,7 +51,12 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  // Deleting a client is administrative — owner/admin only. Create/edit
+  // stay open to designers (a client is a prerequisite for a project).
+  if (!canManageOrganizationStandards(role)) {
+    return apiError("Only owners and admins can delete clients.", 403, FORBIDDEN_CODE);
+  }
 
   const existing = await prisma.client.findFirst({ where: { id: params.id, orgId } });
   if (!existing) return apiError("Client not found", 404);

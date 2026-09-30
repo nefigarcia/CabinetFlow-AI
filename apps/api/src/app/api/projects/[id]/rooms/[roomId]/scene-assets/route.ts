@@ -4,6 +4,11 @@ import { getContext } from "@/lib/context";
 import { parseBody, createSceneAssetInstanceSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
 import {
+  canMutateDesignContent,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_ASSIGN,
+} from "@/lib/authz";
+import {
   placementToColumns,
   serializeSceneAssetInstance,
 } from "@/lib/sceneAssetSerializer";
@@ -40,7 +45,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
+  if (!canMutateDesignContent(role)) {
+    return apiError(FORBIDDEN_MESSAGE_ASSIGN, 403, FORBIDDEN_CODE);
+  }
 
   const room = await assertRoom(params.roomId, params.id, orgId);
   if (!room) return apiError("Room not found", 404);

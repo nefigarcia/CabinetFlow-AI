@@ -6,6 +6,11 @@ import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
 import { constructionProfileWriteSchema } from "@woodcraft/shared";
 import { convertJsonNulls } from "@/lib/profiles";
+import {
+  canManageOrganizationLibrary,
+  FORBIDDEN_CODE,
+  FORBIDDEN_MESSAGE_MANAGE_LIBRARY,
+} from "@/lib/authz";
 
 export async function GET(req: NextRequest): Promise<Response> {
   const { orgId } = getContext(req);
@@ -22,8 +27,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
-  const { orgId } = getContext(req);
+  const { orgId, role } = getContext(req);
   if (!orgId) return apiError("Unauthorized", 401);
+  if (!canManageOrganizationLibrary(role)) {
+    return apiError(FORBIDDEN_MESSAGE_MANAGE_LIBRARY, 403, FORBIDDEN_CODE);
+  }
 
   let body: unknown;
   try {

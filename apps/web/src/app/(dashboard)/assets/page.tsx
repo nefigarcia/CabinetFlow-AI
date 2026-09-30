@@ -13,6 +13,8 @@ import {
   useSceneAssetDefinitions,
 } from "@/hooks/useSceneAssetDefinitions";
 import { AddAssetModal } from "./AddAssetModal";
+import { useAuthStore } from "@/store/auth";
+import { canManageOrganizationLibrary } from "@/lib/authz";
 
 // Asset Library — organization-wide Scene Asset catalog management.
 //
@@ -36,6 +38,10 @@ export default function AssetLibraryPage() {
   const [categoryFilter, setCategoryFilter] = useState<SceneAssetCategory | "all">("all");
   const [query, setQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  // UI mirror of the server policy (owner/admin manage definitions).
+  // Server is authoritative and still applies SYSTEM-scope rules.
+  const role = useAuthStore((s) => s.user?.role);
+  const canManage = canManageOrganizationLibrary(role);
   const [archivingId, setArchivingId] = useState<string | null>(null);
 
   // Refetch when scope/status changes so the archived filter hits the
@@ -86,13 +92,21 @@ export default function AssetLibraryPage() {
             3D scene assets available to your organization + the CabinetFlow library.
           </p>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="text-sm bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-md transition-colors"
-        >
-          + Add Asset
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setShowAdd(true)}
+            className="text-sm bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-md transition-colors"
+          >
+            + Add Asset
+          </button>
+        )}
       </div>
+
+      {!canManage && (
+        <p className="text-[11px] mb-3" style={{ color: "#8b96a8" }}>
+          Read-only · only owners and admins can upload or archive asset definitions.
+        </p>
+      )}
 
       {/* Filter row */}
       <div className="flex flex-wrap gap-2 mb-4 items-center">
@@ -158,12 +172,14 @@ export default function AssetLibraryPage() {
       {filtered.length === 0 && !loading ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-sm text-gray-400">No assets match.</p>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="mt-3 text-xs text-brand-400 hover:text-brand-300"
-          >
-            Upload your first asset →
-          </button>
+          {canManage && (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="mt-3 text-xs text-brand-400 hover:text-brand-300"
+            >
+              Upload your first asset →
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
@@ -171,14 +187,14 @@ export default function AssetLibraryPage() {
             <AssetCard
               key={r.id}
               record={r}
-              onArchive={() => void handleArchive(r)}
+              onArchive={canManage ? () => void handleArchive(r) : undefined}
               archiving={archivingId === r.id}
             />
           ))}
         </div>
       )}
 
-      {showAdd && (
+      {canManage && showAdd && (
         <AddAssetModal
           onClose={() => setShowAdd(false)}
           onCreated={() => {
@@ -256,7 +272,7 @@ function AssetCard({
   archiving,
 }: {
   record: SceneAssetDefinitionRecord;
-  onArchive: () => void;
+  onArchive?: () => void;
   archiving: boolean;
 }) {
   const thumbnailUrl = resolveSceneAssetThumbnailUrl(record.thumbnailKey);
@@ -328,7 +344,7 @@ function AssetCard({
           </p>
         )}
         <div className="flex-1" />
-        {record.active && (
+        {record.active && onArchive && (
           <div className="flex items-center justify-end gap-2 mt-3">
             <button
               onClick={onArchive}
