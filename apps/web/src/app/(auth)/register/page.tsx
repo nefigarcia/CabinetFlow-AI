@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/store/auth";
 import { apiClient } from "@/lib/api";
+import { trackMetaEvent } from "@/lib/analytics";
 import type { AuthResponse, RegisterRequest } from "@woodcraft/shared";
 
 export default function RegisterPage() {
@@ -31,11 +32,10 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await apiClient.post<AuthResponse>("/auth/register", form);
-      if (typeof window !== "undefined" && window.fbq) {
-        window.fbq("track", "CompleteRegistration");
-      }
+      trackMetaEvent("CompleteRegistration");
       setAuth(res.user, res.org, res.accessToken, res.refreshToken);
-      router.push("/dashboard");
+      // New accounts land on Quick Start, not an empty dashboard.
+      router.push("/onboarding");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {

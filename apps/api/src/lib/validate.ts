@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   HARDWARE_TYPES,
+  quickStartSchema,
   sceneAssetInstanceCreateSchema,
   sceneAssetInstanceUpdateSchema,
 } from "@woodcraft/shared";
@@ -53,6 +54,13 @@ export const createClientSchema = z.object({
 });
 
 export const updateClientSchema = createClientSchema.partial();
+
+// ─── Onboarding ───────────────────────────────────────────────────────────────
+
+// First-run Quick Start (Client + Project + Room). Defined in
+// @woodcraft/shared so the trim/default rules are unit-tested there;
+// re-exported here to keep route imports on the usual validate module.
+export { quickStartSchema };
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 

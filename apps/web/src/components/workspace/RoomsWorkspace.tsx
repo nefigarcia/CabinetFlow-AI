@@ -23,6 +23,8 @@ import { CanvasToolbar } from "./canvas/CanvasToolbar";
 import { SceneAssetToolbar } from "./canvas/SceneAssetToolbar";
 import { InspectorPanel } from "./inspector/InspectorPanel";
 import { useWorkspaceUiStore } from "./state/use-workspace-ui";
+import { EditorFirstRunGuide } from "@/components/onboarding/EditorFirstRunGuide";
+import { trackMetaCustomEventOnce } from "@/lib/analytics";
 
 // RoomsWorkspace — the premium workspace shell.
 //
@@ -89,6 +91,12 @@ export function RoomsWorkspace({ projectId }: Props) {
   useEffect(() => {
     if (projectId) loadMaterialsForProject(projectId);
   }, [projectId, loadMaterialsForProject]);
+
+  // Funnel analytics: one EditorOpened per editor session (dedupe key is
+  // local only — no identifier is sent to Meta).
+  useEffect(() => {
+    trackMetaCustomEventOnce("CabinetFlow_EditorOpened", `editor-opened:${projectId}`);
+  }, [projectId]);
 
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
@@ -347,6 +355,19 @@ export function RoomsWorkspace({ projectId }: Props) {
               <p className="text-gray-500 text-sm">Add a cabinet to get started.</p>
             </div>
           )}
+
+          {/* First-run guidance (?onboarding=1, empty room). Overlay only —
+              drives the existing AI Copilot / Cabinet library, never the scene. */}
+          <EditorFirstRunGuide
+            roomReady={Boolean(selectedRoom) && !isLoading}
+            cabinetCount={cabinets.length}
+            onDesignWithAI={() => setAiCopilotOpen(true)}
+            onBrowseLibrary={() => {
+              setAiCopilotOpen(false);
+              setRightOpen(false);
+              setLeftOpen(true); // mobile sheet; the desktop panel is always visible
+            }}
+          />
 
           <AICopilotPanel
             projectId={projectId}

@@ -144,6 +144,10 @@ export * from "./architecture";
 // compiler and never generates parts.
 export * from "./cabinets";
 
+// First-run onboarding / activation. Status is DERIVED from Client /
+// Project / Room / Cabinet records — no stored onboarding flags.
+export * from "./onboarding";
+
 // Profile Inheritance domain (Phase 1). Persistent construction /
 // material / hardware profiles with field-level inheritance, per-field
 // provenance, verification gaps, and deferred-capability metadata.

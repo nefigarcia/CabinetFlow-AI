@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { canMutateDesignContent } from "@/lib/authz";
+import { useActivationStatus } from "@/hooks/useActivationStatus";
+import { ActivationChecklist } from "@/components/onboarding/ActivationChecklist";
 
 interface DashboardStats {
   activeProjects: number;
@@ -181,6 +185,8 @@ function StatusBadge({ status }: { status: string }) {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const { status: activation } = useActivationStatus();
+  const canDesign = canMutateDesignContent(useAuthStore((s) => s.user?.role));
 
   useEffect(() => {
     apiClient
@@ -211,6 +217,13 @@ export default function DashboardPage() {
         </div>
         <p className="text-gray-400 text-sm ml-4">Overview of your shop&apos;s activity.</p>
       </div>
+
+      {/* First-design activation card — server-derived; renders nothing
+          while unresolved, on error, for view-only roles, or once the
+          org has a cabinet. */}
+      {activation && !activation.activated && canDesign && (
+        <ActivationChecklist status={activation} className="mb-6 md:mb-8" />
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">

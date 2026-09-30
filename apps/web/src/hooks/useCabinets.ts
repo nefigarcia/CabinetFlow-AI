@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
+import { trackFirstCabinetActivation } from "@/lib/analytics";
 import type { Cabinet } from "@woodcraft/shared";
 
 export interface ValidationIssue {
@@ -64,9 +65,13 @@ export function useCabinets(projectId: string) {
     async (data: CreateCabinetInput): Promise<Cabinet | null> => {
       if (!selectedRoomId) return null;
       setSaving(true);
+      // Activation analytics: read the LIVE store (not the render closure)
+      // so a sequential AI batch only counts its first cabinet.
+      const wasEmpty = useEditorStore.getState().cabinets.length === 0;
       try {
         const cabinet = await apiClient.post<CabinetResponse>(baseUrl(), data);
         addCabinet(cabinet);
+        if (wasEmpty) trackFirstCabinetActivation(); // persisted success only
         return cabinet;
       } catch (e: unknown) {
         console.error("Create cabinet failed:", e);

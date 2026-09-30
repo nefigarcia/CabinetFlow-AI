@@ -78,14 +78,25 @@ export default function ProjectsPage() {
         <div className="text-gray-500 text-sm">Loading…</div>
       ) : projects.length === 0 ? (
         <div className="bg-surface-50 border border-surface-200 rounded-xl p-10 text-center">
-          <p className="text-gray-500 text-sm">No projects yet.</p>
-          <p className="text-gray-600 text-xs mt-1">Create your first project to start designing.</p>
-          <button
-            onClick={() => setShowNew(true)}
-            className="mt-4 bg-brand-500 hover:bg-brand-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-          >
-            + New Project
-          </button>
+          <p className="text-white text-base font-medium">No projects yet.</p>
+          <p className="text-gray-400 text-sm mt-1">
+            Create a project and we&apos;ll take you straight into the visual cabinet editor.
+          </p>
+          <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
+            <Link
+              href="/onboarding"
+              className="text-sm font-semibold px-4 py-2 rounded-lg transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E8C547]"
+              style={{ background: "#E8C547", color: "#111214" }}
+            >
+              Quick Start
+            </Link>
+            <button
+              onClick={() => setShowNew(true)}
+              className="bg-brand-500 hover:bg-brand-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+            >
+              + New Project
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

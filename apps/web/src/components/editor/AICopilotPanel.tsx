@@ -816,6 +816,21 @@ function PipelineCard({
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
+const STARTER_PROMPTS: { label: string; prompt: string }[] = [
+  {
+    label: "Modern kitchen with an island",
+    prompt: "Modern kitchen with base and upper cabinets along the back wall and a center island",
+  },
+  {
+    label: "Simple wall of base + upper cabinets",
+    prompt: "Simple single wall of base cabinets with matching upper cabinets above",
+  },
+  {
+    label: "Laundry room storage",
+    prompt: "Laundry room storage with a tall utility cabinet and upper cabinets over the washer and dryer",
+  },
+];
+
 export default function AICopilotPanel({
   projectId,
   roomId: _roomId,
@@ -828,6 +843,18 @@ export default function AICopilotPanel({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Starter prompts only fill the textarea — the user still presses Send.
+  const applyStarterPrompt = (prompt: string) => {
+    setInput(prompt);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(prompt.length, prompt.length);
+    });
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -993,11 +1020,23 @@ export default function AICopilotPanel({
                   <p className="text-sm text-gray-300 font-semibold mb-1">
                     Describe any room design
                   </p>
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    e.g. "Modern white oak kitchen with 10 ft island" · "Living room
-                    entertainment wall with TV alcove and flanking towers" · "Home office
-                    with built-in bookcase and floating desk"
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Describe the room and CabinetFlow can create a starting layout.
                   </p>
+                  <div className="mt-4 flex flex-col gap-1.5" aria-label="Starter prompts">
+                    {STARTER_PROMPTS.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => applyStarterPrompt(p.prompt)}
+                        disabled={busy}
+                        className="text-left text-xs text-gray-300 hover:text-white rounded-lg px-3 py-2 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c8852a]"
+                        style={{ background: "#1A1E26", border: "1px solid #2E3240" }}
+                      >
+                        <span style={{ color: "#c8852a" }}>✦</span> {p.label}
+                      </button>
+                    ))}
+                  </div>
                   <div
                     className="mt-6 rounded-lg p-3 text-left"
                     style={{ background: "#0D0F12", border: "1px solid #1E2226" }}
@@ -1124,6 +1163,7 @@ export default function AICopilotPanel({
             <div className="flex-shrink-0 p-3" style={{ borderTop: "1px solid #1E2226" }}>
               <div className="flex gap-2 items-end">
                 <textarea
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}

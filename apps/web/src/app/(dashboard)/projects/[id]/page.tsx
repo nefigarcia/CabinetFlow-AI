@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { DEFAULT_ROOM_DIMENSIONS_MM } from "@woodcraft/shared";
 import { apiClient } from "@/lib/api";
 import { useEditorStore } from "@/store/editor";
 import { AssignmentsPanel } from "@/components/settings/systems/AssignmentsPanel";
@@ -30,7 +31,11 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [addingRoom, setAddingRoom] = useState(false);
-  const [newRoom, setNewRoom] = useState({ name: "", width: 4800, height: 2400, depth: 5400 });
+  // Explicit type: the shared constant is `as const`, but the form edits these values.
+  const [newRoom, setNewRoom] = useState<{ name: string; width: number; height: number; depth: number }>({
+    name: "",
+    ...DEFAULT_ROOM_DIMENSIONS_MM,
+  });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -78,7 +83,7 @@ export default function ProjectDetailPage() {
       const room = await apiClient.post<Room>(`/projects/${id}/rooms`, newRoom);
       setProject((p) => p ? { ...p, rooms: [...p.rooms, room] } : p);
       setAddingRoom(false);
-      setNewRoom({ name: "", width: 4800, height: 2400, depth: 5400 });
+      setNewRoom({ name: "", ...DEFAULT_ROOM_DIMENSIONS_MM });
       // Pre-select the new room in the editor store, then navigate to the editor
       // so the user lands straight on the room they just created.
       useEditorStore.getState().selectRoom(room.id);
